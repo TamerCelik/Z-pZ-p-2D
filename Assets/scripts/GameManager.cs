@@ -13,7 +13,8 @@ public class GameManager : MonoBehaviour
 
     [Header("UI Objeleri")]
     public TextMeshProUGUI scoreText;
-    public TextMeshProUGUI healthText;
+    public TextMeshProUGUI healthText;   
+    
     public GameObject gameOverPanel;
     public TextMeshProUGUI finalScoreText;
     public TextMeshProUGUI highScoreText;
