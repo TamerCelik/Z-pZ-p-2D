@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.SceneManagement;
 using TMPro;
 
@@ -13,9 +13,9 @@ public class GameManager : MonoBehaviour
 
     [Header("UI Objeleri")]
     public TextMeshProUGUI scoreText;
-    public TextMeshProUGUI healthText;   
-    
+    public TextMeshProUGUI healthText;
     public GameObject gameOverPanel;
+    public GameObject mobileControlsPanel;
     public TextMeshProUGUI finalScoreText;
     public TextMeshProUGUI highScoreText;
 
@@ -26,7 +26,6 @@ public class GameManager : MonoBehaviour
 
     [Header("Güvenli Platform Ayarları")]
     public GameObject guvenliPlatformPrefab;
-    // Platformun karakterin ne kadar altında doğacağını belirler
     public float platformMesafeAyari = 0.5f;
 
     private float score;
@@ -69,12 +68,8 @@ public class GameManager : MonoBehaviour
         if (health <= 0) GameOver();
         else
         {
-            // Karakteri yukarı ışınla ve düşme hızını sıfırla
             player.transform.position = respawnPoint.position;
             player.GetComponent<Rigidbody2D>().linearVelocity = Vector2.zero;
-
-            // BURADAKİ GuvenliPlatformOlustur(); SATIRINI SİLDİK!
-            // Artık sadece Start() fonksiyonunun içinde kaldığı için yalnızca oyun ilk başladığında çalışacak.
         }
     }
 
@@ -82,9 +77,7 @@ public class GameManager : MonoBehaviour
     {
         if (guvenliPlatformPrefab != null && respawnPoint != null)
         {
-            // YENİ: 2f yerine belirlediğimiz hassas mesafeyi kullanıyoruz
             Vector2 platformKonumu = new Vector2(respawnPoint.position.x, respawnPoint.position.y - platformMesafeAyari);
-
             Instantiate(guvenliPlatformPrefab, platformKonumu, Quaternion.identity);
         }
     }
@@ -93,6 +86,20 @@ public class GameManager : MonoBehaviour
     {
         isGameActive = false;
         if (gameOverPanel != null) gameOverPanel.SetActive(true);
+
+        // Mobil butonları GameOver anında otomatik gizle
+        if (mobileControlsPanel != null)
+        {
+            mobileControlsPanel.SetActive(false);
+        }
+        else
+        {
+            MobileButton[] mobileButtons = Object.FindObjectsByType<MobileButton>(FindObjectsSortMode.None);
+            foreach (var btn in mobileButtons)
+            {
+                btn.gameObject.SetActive(false);
+            }
+        }
 
         int currentScore = (int)score;
         int highScore = PlayerPrefs.GetInt("HighScore", 0);
