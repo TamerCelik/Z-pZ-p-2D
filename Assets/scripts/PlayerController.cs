@@ -24,6 +24,12 @@ public class PlayerController : MonoBehaviour
     [Range(0f, 10f)]
     public float hasarSesiSiddeti = 1f;
 
+    [Header("Dinamik Ekran Sınırları")]
+    [Tooltip("Karakterin kenarlardan taşmaması için yarım genişlik payı")]
+    public float playerWidthOffset = 0.35f;
+    private float minX = -2.75f;
+    private float maxX = 2.75f;
+
     // Mobil girdiler için değişkenler
     private float mobileMoveInput = 0f;
     private bool mobileJumpRequested = false;
@@ -32,6 +38,27 @@ public class PlayerController : MonoBehaviour
     {
         rb = GetComponent<Rigidbody2D>();
         audioSource = GetComponent<AudioSource>();
+        CalculateScreenBounds();
+    }
+
+    /// <summary>
+    /// Ekranın en boy oranına göre karakterin sağ/sol sınırlarını dinamik belirler.
+    /// Farklı telefon modellerinde karakterin ekrandan taşmasını engeller.
+    /// </summary>
+    private void CalculateScreenBounds()
+    {
+        Camera mainCam = Camera.main;
+        if (mainCam != null)
+        {
+            float camHalfWidth = mainCam.orthographicSize * mainCam.aspect;
+            minX = -camHalfWidth + playerWidthOffset;
+            maxX = camHalfWidth - playerWidthOffset;
+        }
+        else
+        {
+            minX = -2.75f;
+            maxX = 2.75f;
+        }
     }
 
     void Update()
@@ -52,8 +79,8 @@ public class PlayerController : MonoBehaviour
             transform.localScale = new Vector3(-Mathf.Abs(transform.localScale.x), transform.localScale.y, 1);
         }
 
-        // 3. EKRAN SINIRLAMA
-        float sinirliX = Mathf.Clamp(transform.position.x, -2.75f, 2.75f);
+        // 3. EKRAN SINIRLAMA (Dinamik Mobil ve PC Uyumlu)
+        float sinirliX = Mathf.Clamp(transform.position.x, minX, maxX);
         transform.position = new Vector2(sinirliX, transform.position.y);
 
         // 4. ZEMİN KONTROLÜ
@@ -78,7 +105,6 @@ public class PlayerController : MonoBehaviour
     /// <summary>
     /// Mobil dokunmatik butonlar (Sol/Sağ) tarafından çağrılır.
     /// </summary>
-    /// <param name="direction">-1 (Sol), 1 (Sağ) veya 0 (Bırakıldı)</param>
     public void SetMobileMoveInput(float direction)
     {
         mobileMoveInput = direction;
