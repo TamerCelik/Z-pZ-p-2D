@@ -1,32 +1,45 @@
-﻿using UnityEngine;
+using UnityEngine;
 
 public class PlatformSpawner : MonoBehaviour
 {
     public GameObject[] platformPrefabs;
 
     [Header("Mesafe Ayarları")]
-    [Tooltip("Platformlar arası dikey mesafe (Akıcı zıplama için 3f idealdir)")]
-    public float platformDistance = 3f;
+    [Tooltip("Platformlar arası dikey mesafe (2.0f - 2.4f zıplamak için idealdir)")]
+    public float platformDistance = 2.2f;
 
-    [Tooltip("Ekranın sağ ve sol kenar sınırları")]
-    public float xLimit = 2.4f;
+    [Tooltip("Ekranın sağ ve sol kenar sınırları (Ekran boyutuna göre otomatik ayarlanır)")]
+    public float xLimit = 1.4f;
 
     [Header("Ulaşılabilirlik Kuralı")]
     [Tooltip("Bir sonraki platformun önceki platforma göre maksimum yatay sapma mesafesi")]
-    public float maxHorizontalStep = 1.8f;
+    public float maxHorizontalStep = 1.2f;
 
-    // Son üretilen platformu hafızada tutuyoruz
     private GameObject lastSpawnedPlatform;
 
     void Start()
     {
-        // Oyun başlar başlamaz ilk platformu üret
+        CalculateLimits();
         SpawnPlatform();
+    }
+
+    /// <summary>
+    /// Ekranın en-boy oranına göre platformların ASLA ekrandan taşmayacağı güvenli sınırları hesaplar.
+    /// </summary>
+    private void CalculateLimits()
+    {
+        Camera cam = Camera.main;
+        if (cam != null)
+        {
+            float camHalfWidth = cam.orthographicSize * cam.aspect;
+            // Platform yarım genişliği payı (0.8f) düşülerek platformun TAMAMI ekranın içinde tutulur
+            xLimit = Mathf.Clamp(camHalfWidth - 0.8f, 0.8f, 2.2f);
+            maxHorizontalStep = Mathf.Min(maxHorizontalStep, xLimit * 1.1f);
+        }
     }
 
     void Update()
     {
-        // Eğer son platform yoksa veya belirlenen mesafe kadar aşağı indiyse yenisini üret
         if (lastSpawnedPlatform == null ||
             transform.position.y - lastSpawnedPlatform.transform.position.y >= platformDistance)
         {
@@ -36,6 +49,8 @@ public class PlatformSpawner : MonoBehaviour
 
     void SpawnPlatform()
     {
+        CalculateLimits();
+
         float nextX;
 
         if (lastSpawnedPlatform != null)
@@ -43,21 +58,21 @@ public class PlatformSpawner : MonoBehaviour
             float prevX = lastSpawnedPlatform.transform.position.x;
             float step = Random.Range(-maxHorizontalStep, maxHorizontalStep);
 
-            // Kenarlara sıkışmayı önleme: Platform kenardaysa merkeze yönlendir
-            if (prevX > xLimit * 0.65f)
+            // Eğer platform ekranın sağına/soluna çok yakınsa, bir sonrakini merkeze doğru üret
+            if (prevX > xLimit * 0.4f)
             {
-                step = Random.Range(-maxHorizontalStep, 0.2f);
+                step = Random.Range(-maxHorizontalStep, 0.1f);
             }
-            else if (prevX < -xLimit * 0.65f)
+            else if (prevX < -xLimit * 0.4f)
             {
-                step = Random.Range(-0.2f, maxHorizontalStep);
+                step = Random.Range(-0.1f, maxHorizontalStep);
             }
 
             nextX = Mathf.Clamp(prevX + step, -xLimit, xLimit);
         }
         else
         {
-            nextX = Random.Range(-1f, 1f);
+            nextX = Random.Range(-0.5f, 0.5f);
         }
 
         Vector2 spawnPos = new Vector2(nextX, transform.position.y);

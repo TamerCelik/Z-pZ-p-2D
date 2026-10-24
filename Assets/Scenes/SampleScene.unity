@@ -2398,8 +2398,8 @@ MonoBehaviour:
   - {fileID: 8861716677356965117, guid: 86abc5f833c673e46ba7accf3843da52, type: 3}
   - {fileID: 8205181692295124216, guid: 5e61585efcb87e04a93f69b3e3e9a9fe, type: 3}
   - {fileID: 661938512577522053, guid: 86a8a8e55c2b4804184369bc161cefbb, type: 3}
-  platformDistance: 1.6
-  xLimit: 2.9
+  platformDistance: 2.2
+  xLimit: 1.4
 --- !u!4 &1104604052
 Transform:
   m_ObjectHideFlags: 0
