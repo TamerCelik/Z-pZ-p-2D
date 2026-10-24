@@ -25,10 +25,11 @@ public class PlayerController : MonoBehaviour
     public float hasarSesiSiddeti = 1f;
 
     [Header("Dinamik Ekran Sınırları")]
-    [Tooltip("Karakterin kenarlardan taşmaması için yarım genişlik payı")]
-    public float playerWidthOffset = 0.35f;
+    [Tooltip("0 olduğunda karakterin tam yarısı ekran çizgisini geçer.")]
+    public float playerWidthOffset = 0f;
     private float minX = -2.75f;
     private float maxX = 2.75f;
+    private float lastAspect = 0f;
 
     // Mobil girdiler için değişkenler
     private float mobileMoveInput = 0f;
@@ -43,7 +44,7 @@ public class PlayerController : MonoBehaviour
 
     /// <summary>
     /// Ekranın en boy oranına göre karakterin sağ/sol sınırlarını dinamik belirler.
-    /// Farklı telefon modellerinde karakterin ekrandan taşmasını engeller.
+    /// playerWidthOffset = 0 olduğunda karakterin tam yarısı ekran sınırını geçer.
     /// </summary>
     private void CalculateScreenBounds()
     {
@@ -53,6 +54,7 @@ public class PlayerController : MonoBehaviour
             float camHalfWidth = mainCam.orthographicSize * mainCam.aspect;
             minX = -camHalfWidth + playerWidthOffset;
             maxX = camHalfWidth - playerWidthOffset;
+            lastAspect = mainCam.aspect;
         }
         else
         {
@@ -63,6 +65,13 @@ public class PlayerController : MonoBehaviour
 
     void Update()
     {
+        // Ekran boyutu veya oranı editörde değişirse sınırları anında güncelle
+        Camera mainCam = Camera.main;
+        if (mainCam != null && Mathf.Abs(mainCam.aspect - lastAspect) > 0.005f)
+        {
+            CalculateScreenBounds();
+        }
+
         // 1. HAREKET (Klavye ve Dokunmatik Kontrolleri Birleştirme)
         float keyboardInput = Input.GetAxisRaw("Horizontal");
         float moveInput = Mathf.Abs(mobileMoveInput) > 0.01f ? mobileMoveInput : keyboardInput;
