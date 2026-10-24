@@ -8,7 +8,7 @@ public class GameManager : MonoBehaviour
 
     [Header("Mobil Performans ve Optimizasyon")]
     [Tooltip("Mobil cihazlarda sabit FPS hedefi (60 FPS akıcı ve pil dostudur)")]
-    public int targetFPS = 60;
+    public int targetFPS = 90;
     [Tooltip("Hasar alındığında telefonun hafifçe titremesi")]
     public bool enableVibration = true;
 
