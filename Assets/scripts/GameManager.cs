@@ -6,6 +6,12 @@ public class GameManager : MonoBehaviour
 {
     public static float globalPlatformSpeed = 4f;
 
+    [Header("Mobil Performans ve Optimizasyon")]
+    [Tooltip("Mobil cihazlarda sabit FPS hedefi (60 FPS akıcı ve pil dostudur)")]
+    public int targetFPS = 60;
+    [Tooltip("Hasar alındığında telefonun hafifçe titremesi")]
+    public bool enableVibration = true;
+
     [Header("Hız Ayarları")]
     public float baslangicHizi = 4f;
     [Range(0f, 0.5f)] public float hizlanmaMiktari = 0.05f;
@@ -33,6 +39,11 @@ public class GameManager : MonoBehaviour
 
     void Start()
     {
+        // 1. MOBİL PERFORMANS VE PİL AYARLARI
+        QualitySettings.vSyncCount = 0; // vSync kapatılarak targetFrameRate'in mobilde devreye girmesi sağlanır
+        Application.targetFrameRate = targetFPS;
+        Screen.sleepTimeout = SleepTimeout.NeverSleep; // Oyun esnasında telefon ekranının kararmasını engeller
+
         globalPlatformSpeed = baslangicHizi;
         score = 0;
         isGameActive = true;
@@ -64,6 +75,14 @@ public class GameManager : MonoBehaviour
 
         health--;
         UpdateHealthUI();
+
+        // Hasar anında hafif mobil titreşim (Haptic Feedback)
+        if (enableVibration)
+        {
+#if UNITY_ANDROID || UNITY_IOS
+            Handheld.Vibrate();
+#endif
+        }
 
         if (health <= 0) GameOver();
         else
@@ -108,6 +127,7 @@ public class GameManager : MonoBehaviour
         {
             highScore = currentScore;
             PlayerPrefs.SetInt("HighScore", highScore);
+            PlayerPrefs.Save(); // Mobilde skorun anında kalıcı belleğe yazılmasını garantiler
         }
 
         if (finalScoreText != null) finalScoreText.text = "SKORUN: " + currentScore;
