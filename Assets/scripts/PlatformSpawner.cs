@@ -1,28 +1,32 @@
-using UnityEngine;
+ï»¿using UnityEngine;
 
 public class PlatformSpawner : MonoBehaviour
 {
     public GameObject[] platformPrefabs;
 
-    // Platformlar arasý SABÝT mesafe (Örn: 4 metre)
-    // Hýz ne olursa olsun bu mesafe korunacak.
-    public float platformDistance = 4f;
+    [Header("Mesafe AyarlarÄ±")]
+    [Tooltip("Platformlar arasÄ± dikey mesafe (AkÄ±cÄ± zÄ±plama iÃ§in 3f idealdir)")]
+    public float platformDistance = 3f;
 
-    public float xLimit = 2.5f;
+    [Tooltip("EkranÄ±n saÄŸ ve sol kenar sÄ±nÄ±rlarÄ±")]
+    public float xLimit = 2.4f;
 
-    // Son üretilen platformu hafýzada tutuyoruz
+    [Header("UlaÅŸÄ±labilirlik KuralÄ±")]
+    [Tooltip("Bir sonraki platformun Ã¶nceki platforma gÃ¶re maksimum yatay sapma mesafesi")]
+    public float maxHorizontalStep = 1.8f;
+
+    // Son Ã¼retilen platformu hafÄ±zada tutuyoruz
     private GameObject lastSpawnedPlatform;
 
     void Start()
     {
-        // Oyun baþlar baþlamaz ilk platformu üret
+        // Oyun baÅŸlar baÅŸlamaz ilk platformu Ã¼ret
         SpawnPlatform();
     }
 
     void Update()
     {
-        // Eðer son üretilen platform yoksa (yok olduysa) veya
-        // Son platform, Spawner'dan yeterince (platformDistance kadar) aþaðý indiyse:
+        // EÄŸer son platform yoksa veya belirlenen mesafe kadar aÅŸaÄŸÄ± indiyse yenisini Ã¼ret
         if (lastSpawnedPlatform == null ||
             transform.position.y - lastSpawnedPlatform.transform.position.y >= platformDistance)
         {
@@ -32,13 +36,33 @@ public class PlatformSpawner : MonoBehaviour
 
     void SpawnPlatform()
     {
-        float randomX = Random.Range(-xLimit, xLimit);
-        // Spawner'ýn olduðu yükseklikte üret
-        Vector2 spawnPos = new Vector2(randomX, transform.position.y);
+        float nextX;
 
+        if (lastSpawnedPlatform != null)
+        {
+            float prevX = lastSpawnedPlatform.transform.position.x;
+            float step = Random.Range(-maxHorizontalStep, maxHorizontalStep);
+
+            // Kenarlara sÄ±kÄ±ÅŸmayÄ± Ã¶nleme: Platform kenardaysa merkeze yÃ¶nlendir
+            if (prevX > xLimit * 0.65f)
+            {
+                step = Random.Range(-maxHorizontalStep, 0.2f);
+            }
+            else if (prevX < -xLimit * 0.65f)
+            {
+                step = Random.Range(-0.2f, maxHorizontalStep);
+            }
+
+            nextX = Mathf.Clamp(prevX + step, -xLimit, xLimit);
+        }
+        else
+        {
+            nextX = Random.Range(-1f, 1f);
+        }
+
+        Vector2 spawnPos = new Vector2(nextX, transform.position.y);
         int randomIndex = Random.Range(0, platformPrefabs.Length);
 
-        // Yeni üretilen platformu "lastSpawnedPlatform" deðiþkenine kaydet
         lastSpawnedPlatform = Instantiate(platformPrefabs[randomIndex], spawnPos, Quaternion.identity);
     }
 }

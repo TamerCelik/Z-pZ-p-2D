@@ -7,6 +7,16 @@ public class PlayerController : MonoBehaviour
     public float jumpForce = 12f;
     private Rigidbody2D rb;
 
+    [Header("Kontrol Modu (0: Butonlar, 1: Jiroskop/Eğim)")]
+    [Tooltip("Kontrol tipi PlayerPrefs'ten otomatik yüklenir. İstenirse editörden test için değiştirilebilir.")]
+    public int controlMode = 0;
+    [Tooltip("Jiroskop eğim hassasiyeti (2.5 - 3.5 idealdir)")]
+    public float tiltSensitivity = 3f;
+
+    [Header("Mobil Buton Referansları (Jiroskopta Otomatik Gizlenir)")]
+    public GameObject leftButtonObj;
+    public GameObject rightButtonObj;
+
     [Header("Zemin Kontrolü")]
     public Transform ayakNoktasi;
     public float ayakCapi = 0.3f;
@@ -39,13 +49,35 @@ public class PlayerController : MonoBehaviour
     {
         rb = GetComponent<Rigidbody2D>();
         audioSource = GetComponent<AudioSource>();
+
+        // Kayıtlı kontrol modunu yükle (Varsayılan: 0 - Butonlar)
+        controlMode = PlayerPrefs.GetInt("ControlMode", 0);
+        ApplyControlModeUI();
+
         CalculateScreenBounds();
     }
 
     /// <summary>
-    /// Ekranın en boy oranına göre karakterin sağ/sol sınırlarını dinamik belirler.
-    /// playerWidthOffset = 0 olduğunda karakterin tam yarısı ekran sınırını geçer.
+    /// Kontrol moduna göre Sol ve Sağ butonları gizler/açar.
+    /// Jiroskop modunda Sol/Sağ gizlenir; Zıplama butonu ekranda kalır!
     /// </summary>
+    public void ApplyControlModeUI()
+    {
+        if (leftButtonObj == null) leftButtonObj = GameObject.Find("Btn_Sol");
+        if (rightButtonObj == null) rightButtonObj = GameObject.Find("Btn_Sag");
+
+        if (controlMode == 1) // Jiroskop / Eğim Modu
+        {
+            if (leftButtonObj != null) leftButtonObj.SetActive(false);
+            if (rightButtonObj != null) rightButtonObj.SetActive(false);
+        }
+        else // Standart Buton Modu
+        {
+            if (leftButtonObj != null) leftButtonObj.SetActive(true);
+            if (rightButtonObj != null) rightButtonObj.SetActive(true);
+        }
+    }
+
     private void CalculateScreenBounds()
     {
         Camera mainCam = Camera.main;
@@ -65,16 +97,31 @@ public class PlayerController : MonoBehaviour
 
     void Update()
     {
-        // Ekran boyutu veya oranı editörde değişirse sınırları anında güncelle
+        // Ekran boyutu veya oranı değişirse sınırları güncelle
         Camera mainCam = Camera.main;
         if (mainCam != null && Mathf.Abs(mainCam.aspect - lastAspect) > 0.005f)
         {
             CalculateScreenBounds();
         }
 
-        // 1. HAREKET (Klavye ve Dokunmatik Kontrolleri Birleştirme)
-        float keyboardInput = Input.GetAxisRaw("Horizontal");
-        float moveInput = Mathf.Abs(mobileMoveInput) > 0.01f ? mobileMoveInput : keyboardInput;
+        // 1. HAREKET (Tuşlar, Klavye veya Jiroskop Eğim)
+        float moveInput = 0f;
+
+        if (controlMode == 1) // Jiroskop Modu
+        {
+            float tilt = Input.acceleration.x * tiltSensitivity;
+            // Küçük el titremelerini filtrelemek için ölü bölge (deadzone)
+            if (Mathf.Abs(tilt) < 0.05f) tilt = 0f;
+
+            // Editörde ve PC testinde klavye desteğini koru
+            float keyboardInput = Input.GetAxisRaw("Horizontal");
+            moveInput = Mathf.Abs(keyboardInput) > 0.01f ? keyboardInput : Mathf.Clamp(tilt, -1f, 1f);
+        }
+        else // Buton Modu
+        {
+            float keyboardInput = Input.GetAxisRaw("Horizontal");
+            moveInput = Mathf.Abs(mobileMoveInput) > 0.01f ? mobileMoveInput : keyboardInput;
+        }
 
         rb.linearVelocity = new Vector2(moveInput * moveSpeed, rb.linearVelocity.y);
 
@@ -88,7 +135,7 @@ public class PlayerController : MonoBehaviour
             transform.localScale = new Vector3(-Mathf.Abs(transform.localScale.x), transform.localScale.y, 1);
         }
 
-        // 3. EKRAN SINIRLAMA (Dinamik Mobil ve PC Uyumlu)
+        // 3. EKRAN SINIRLAMA
         float sinirliX = Mathf.Clamp(transform.position.x, minX, maxX);
         transform.position = new Vector2(sinirliX, transform.position.y);
 
@@ -97,7 +144,7 @@ public class PlayerController : MonoBehaviour
 
         // 5. ZIPLAMA VE SES (Klavye Space veya Mobil Buton)
         bool jumpInput = Input.GetButtonDown("Jump") || mobileJumpRequested;
-        mobileJumpRequested = false; // Tek karelik zıplama isteğini tüket
+        mobileJumpRequested = false;
 
         if (jumpInput && yerdeMi)
         {
