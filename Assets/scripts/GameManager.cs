@@ -136,6 +136,25 @@ public class GameManager : MonoBehaviour
         Time.timeScale = 0;
     }
 
+    /// <summary>
+    /// Kontrol modunu (0: Tuslar <-> 1: Jiroskop) degistirir ve aninda uygular.
+    /// UI butonlarinin OnClick olayina atanabilir.
+    /// </summary>
+    public void KontrolModunuDegistir()
+    {
+        int current = PlayerPrefs.GetInt("ControlMode", 0);
+        int next = (current == 0) ? 1 : 0;
+        PlayerPrefs.SetInt("ControlMode", next);
+        PlayerPrefs.Save();
+
+        PlayerController pc = Object.FindFirstObjectByType<PlayerController>();
+        if (pc != null)
+        {
+            pc.controlMode = next;
+            pc.ApplyControlModeUI();
+        }
+    }
+
     public void RestartGame()
     {
         Time.timeScale = 1;
