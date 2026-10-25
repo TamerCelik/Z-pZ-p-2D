@@ -15,8 +15,8 @@ public class GameManager : MonoBehaviour
 
     [Header("Hız Ayarları (Kontrollü ve Dengeli)")]
     public float baslangicHizi = 2.0f;
-    public float maksimumHiz = 2.5f;
-    [Tooltip("Maksimum hıza ve zorluğa ulaşılacak hedef skor puanı (1000 ve sonrasında 2.5 hızında kalır)")]
+    public float maksimumHiz = 2.4f;
+    [Tooltip("Maksimum hıza ve zorluğa ulaşılacak hedef skor puanı (1000 ve sonrasında 2.4 hızında kalır)")]
     public float maxHizSkoru = 1000f;
 
     [Header("UI Objeleri")]
@@ -26,6 +26,11 @@ public class GameManager : MonoBehaviour
     public GameObject mobileControlsPanel;
     public TextMeshProUGUI finalScoreText;
     public TextMeshProUGUI highScoreText;
+
+    [Header("Ses Efektleri")]
+    [Tooltip("Can alındığında çalan ses efekti")]
+    public AudioClip canKazanmaSesi;
+    private AudioSource audioSource;
 
     [Header("Oyun Ayarları")]
     public int health = 3;
@@ -48,6 +53,9 @@ public class GameManager : MonoBehaviour
     {
         Application.targetFrameRate = targetFPS;
         Screen.sleepTimeout = SleepTimeout.NeverSleep; // Oyun esnasında telefon ekranının kararmasını engeller
+
+        audioSource = GetComponent<AudioSource>();
+        if (audioSource == null) audioSource = gameObject.AddComponent<AudioSource>();
 
         globalPlatformSpeed = baslangicHizi;
         score = 0;
@@ -72,19 +80,26 @@ public class GameManager : MonoBehaviour
             currentScore = score;
             if (scoreText != null) scoreText.text = "Skor: " + (int)score;
 
-            // 1000 puana kadar platform hızını pürüzsüzce 2.5'e artır, 1000 ve sonrasında 2.5'te sabitle
+            // 1000 puana kadar platform hızını pürüzsüzce 2.4'e artır, 1000 ve sonrasında 2.4'te sabitle
             float hizOrani = Mathf.Clamp01(score / maxHizSkoru);
             globalPlatformSpeed = Mathf.Lerp(baslangicHizi, maksimumHiz, hizOrani);
         }
     }
 
     /// <summary>
-    /// Can pickup'ı toplandığında veya ödül kazanıldığında can ekler.
+    /// Can pickup'ı toplandığında veya ödül kazanıldığında can ekler ve ses efektini çalar.
     /// </summary>
     public void AddHealth(int amount = 1)
     {
         health += amount;
         UpdateHealthUI();
+
+        if (canKazanmaSesi != null)
+        {
+            if (audioSource == null) audioSource = GetComponent<AudioSource>();
+            if (audioSource == null) audioSource = gameObject.AddComponent<AudioSource>();
+            audioSource.PlayOneShot(canKazanmaSesi);
+        }
 
 #if UNITY_ANDROID && !UNITY_EDITOR
         if (enableVibration) Handheld.Vibrate();

@@ -2408,7 +2408,7 @@ MonoBehaviour:
   baslangicHareketSans: 0.1
   maksimumHareketSans: 0.6
   heartSprite: {fileID: -7097123367695304140, guid: 9b209cf11f1001043b6096ef02d28481, type: 3}
-  heartSpawnChance: 0.15
+  heartSpawnChance: 0.05
   minPlatformsBetweenHearts: 7
 --- !u!4 &1104604052
 Transform:
@@ -3215,8 +3215,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GameManager
   baslangicHizi: 2
-  maksimumHiz: 2.5
+  maksimumHiz: 2.4
   maxHizSkoru: 1000
+  canKazanmaSesi: {fileID: 8300000, guid: 2a46e81b341b4169b6d93cb2f4ed8ae8, type: 3}
   scoreText: {fileID: 1842686727}
   healthText: {fileID: 16148061}
   gameOverPanel: {fileID: 594177217}

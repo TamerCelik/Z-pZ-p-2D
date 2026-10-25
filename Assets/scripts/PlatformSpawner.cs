@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 
 public class PlatformSpawner : MonoBehaviour
 {
@@ -32,7 +32,7 @@ public class PlatformSpawner : MonoBehaviour
     public Sprite heartSprite;
     [Range(0f, 1f)]
     [Tooltip("1000 skordan sonra platformda can çıkma olasılığı (%15)")]
-    public float heartSpawnChance = 0.15f;
+    public float heartSpawnChance = 0.05f;
     [Tooltip("İki can arasında minimum platform sayısı")]
     public int minPlatformsBetweenHearts = 7;
     private int platformsSinceLastHeart = 10;
