@@ -6,23 +6,28 @@ public class PlatformSpawner : MonoBehaviour
 
     [Header("Mesafe Ayarları (Rastgele & Ulaşılabilir)")]
     [Tooltip("Platformlar arası minimum dikey mesafe")]
-    public float minDistance = 1.8f;
+    public float minDistance = 1.4f;
 
     [Tooltip("Platformlar arası maksimum dikey mesafe (tek zıplayışta 2 platform geçmeyi önler)")]
-    public float maxDistance = 2.4f;
+    public float maxDistance = 1.9f;
 
     [Tooltip("Ekranın sağ ve sol kenar sınırları (Ekran boyutuna göre otomatik ayarlanır)")]
     public float xLimit = 2.0f;
 
     [Header("Geniş ve Rastgele Yatay Dağılım")]
     [Tooltip("Bir sonraki platformun önceki platforma göre maksimum yatay sapma mesafesi")]
-    public float maxHorizontalStep = 2.5f;
+    public float maxHorizontalStep = 2.4f;
 
     [Tooltip("Platformların tam üst üste binmesini önlemek için minimum yatay mesafe")]
     public float minHorizontalStep = 0.6f;
 
+    [Header("Hareketli Platformlar (Sağa - Sola Salınım)")]
+    [Range(0f, 1f)]
+    [Tooltip("Platformun sağa sola salınarak hareket etme olasılığı")]
+    public float movingPlatformChance = 0.35f;
+
     private GameObject lastSpawnedPlatform;
-    private float nextSpawnDistance = 2.0f;
+    private float nextSpawnDistance = 1.6f;
 
     void Start()
     {
@@ -91,7 +96,22 @@ public class PlatformSpawner : MonoBehaviour
 
         lastSpawnedPlatform = Instantiate(platformPrefabs[randomIndex], spawnPos, Quaternion.identity);
 
-        // Bir sonraki platform için rastgele yeni dikey mesafe belirle (1.8f - 2.4f)
+        // Bazı platformları sağa-sola hareketli yap
+        PlatformMovement pm = lastSpawnedPlatform.GetComponent<PlatformMovement>();
+        if (pm != null && Random.value < movingPlatformChance)
+        {
+            float randomSpeed = Random.Range(1.8f, 2.6f);
+            float randomDist = Random.Range(0.8f, 1.3f);
+            pm.SetupMovement(true, randomSpeed, randomDist);
+
+            SpriteRenderer sr = lastSpawnedPlatform.GetComponent<SpriteRenderer>();
+            if (sr != null)
+            {
+                sr.color = new Color(0.65f, 0.95f, 1.0f); // Hareketli olduğunu belli eden şık mavi tonu
+            }
+        }
+
+        // Bir sonraki platform için rastgele yeni dikey mesafe belirle (1.4f - 1.9f)
         nextSpawnDistance = Random.Range(minDistance, maxDistance);
     }
 }

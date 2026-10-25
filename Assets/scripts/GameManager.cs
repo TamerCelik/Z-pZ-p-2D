@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 using UnityEngine.SceneManagement;
 using TMPro;
 
@@ -13,9 +13,9 @@ public class GameManager : MonoBehaviour
     public bool enableVibration = true;
 
     [Header("Hız Ayarları")]
-    public float baslangicHizi = 4f;
-    [Range(0f, 0.5f)] public float hizlanmaMiktari = 0.05f;
-    public float maksimumHiz = 8f;
+    public float baslangicHizi = 2.2f;
+    [Range(0f, 0.5f)] public float hizlanmaMiktari = 0.04f;
+    public float maksimumHiz = 6.0f;
 
     [Header("UI Objeleri")]
     public TextMeshProUGUI scoreText;
