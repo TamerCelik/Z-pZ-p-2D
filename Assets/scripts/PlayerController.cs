@@ -3,8 +3,10 @@
 public class PlayerController : MonoBehaviour
 {
     [Header("Hareket Ayarları")]
-    public float moveSpeed = 7.5f;
-    public float jumpForce = 8.5f;
+    [Tooltip("Yatay hareket hızı (5.5 dengeli ve kontrollü bir hızdır)")]
+    public float moveSpeed = 5.5f;
+    [Tooltip("Zıplama gücü (6.8 bir zıplayışta tek platform geçecek ideal güçtür)")]
+    public float jumpForce = 6.8f;
     private Rigidbody2D rb;
 
     [Header("Oynanış Hissi (Game Feel)")]

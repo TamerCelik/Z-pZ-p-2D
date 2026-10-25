@@ -6,20 +6,23 @@ public class PlatformSpawner : MonoBehaviour
 
     [Header("Mesafe Ayarları (Rastgele & Ulaşılabilir)")]
     [Tooltip("Platformlar arası minimum dikey mesafe")]
-    public float minDistance = 1.4f;
+    public float minDistance = 1.8f;
 
-    [Tooltip("Platformlar arası maksimum dikey mesafe (karakterin zıplama yüksekliğini aşmayacak şekilde güvenli tutulur)")]
-    public float maxDistance = 2.0f;
+    [Tooltip("Platformlar arası maksimum dikey mesafe (tek zıplayışta 2 platform geçmeyi önler)")]
+    public float maxDistance = 2.4f;
 
     [Tooltip("Ekranın sağ ve sol kenar sınırları (Ekran boyutuna göre otomatik ayarlanır)")]
-    public float xLimit = 1.4f;
+    public float xLimit = 2.0f;
 
-    [Header("Ulaşılabilirlik Kuralı")]
+    [Header("Geniş ve Rastgele Yatay Dağılım")]
     [Tooltip("Bir sonraki platformun önceki platforma göre maksimum yatay sapma mesafesi")]
-    public float maxHorizontalStep = 1.2f;
+    public float maxHorizontalStep = 2.5f;
+
+    [Tooltip("Platformların tam üst üste binmesini önlemek için minimum yatay mesafe")]
+    public float minHorizontalStep = 0.6f;
 
     private GameObject lastSpawnedPlatform;
-    private float nextSpawnDistance = 1.8f;
+    private float nextSpawnDistance = 2.0f;
 
     void Start()
     {
@@ -29,7 +32,7 @@ public class PlatformSpawner : MonoBehaviour
     }
 
     /// <summary>
-    /// Ekranın en-boy oranına göre platformların ASLA ekrandan taşmayacağı güvenli sınırları hesaplar.
+    /// Ekranın en-boy oranına göre platformların geniş ve güvenli sınırlarını hesaplar.
     /// </summary>
     private void CalculateLimits()
     {
@@ -37,9 +40,8 @@ public class PlatformSpawner : MonoBehaviour
         if (cam != null)
         {
             float camHalfWidth = cam.orthographicSize * cam.aspect;
-            // Platform yarım genişliği payı (0.8f) düşülerek platformun TAMAMI ekranın içinde tutulur
-            xLimit = Mathf.Clamp(camHalfWidth - 0.8f, 0.8f, 2.2f);
-            maxHorizontalStep = Mathf.Min(maxHorizontalStep, xLimit * 1.1f);
+            // Platform yarım genişliği payı düşülerek TAMAMI ekranda kalacak şekilde geniş sınır
+            xLimit = Mathf.Clamp(camHalfWidth - 0.7f, 1.2f, 2.3f);
         }
     }
 
@@ -62,27 +64,26 @@ public class PlatformSpawner : MonoBehaviour
         {
             float prevX = lastSpawnedPlatform.transform.position.x;
 
-            // Dikey mesafe ne kadar yüksekse, oyuncunun yetişebilmesi için yatay sapmayı o kadar dengeli tut
-            float heightRatio = Mathf.InverseLerp(minDistance, maxDistance, nextSpawnDistance);
-            float currentMaxStep = Mathf.Lerp(maxHorizontalStep, maxHorizontalStep * 0.75f, heightRatio);
+            // Rastgele yön seç (Sol veya Sağ), tekdüzelikten kurtar
+            float direction = (Random.value > 0.5f) ? 1f : -1f;
 
-            float step = Random.Range(-currentMaxStep, currentMaxStep);
-
-            // Eğer platform ekranın sağına/soluna çok yakınsa, bir sonrakini merkeze doğru üret
-            if (prevX > xLimit * 0.4f)
+            // Eğer platform ekranın çok kenarındaysa ters yöne gitmeye meyilli olsun
+            if (prevX > xLimit * 0.75f)
             {
-                step = Random.Range(-currentMaxStep, 0.1f);
+                direction = -1f;
             }
-            else if (prevX < -xLimit * 0.4f)
+            else if (prevX < -xLimit * 0.75f)
             {
-                step = Random.Range(-0.1f, currentMaxStep);
+                direction = 1f;
             }
 
-            nextX = Mathf.Clamp(prevX + step, -xLimit, xLimit);
+            // Hem minHorizontalStep hem maxHorizontalStep kullanarak ekran genelinde geniş dağılım sağla
+            float offset = Random.Range(minHorizontalStep, maxHorizontalStep) * direction;
+            nextX = Mathf.Clamp(prevX + offset, -xLimit, xLimit);
         }
         else
         {
-            nextX = Random.Range(-0.5f, 0.5f);
+            nextX = Random.Range(-xLimit * 0.5f, xLimit * 0.5f);
         }
 
         Vector2 spawnPos = new Vector2(nextX, transform.position.y);
@@ -90,7 +91,7 @@ public class PlatformSpawner : MonoBehaviour
 
         lastSpawnedPlatform = Instantiate(platformPrefabs[randomIndex], spawnPos, Quaternion.identity);
 
-        // Bir sonraki platform için rastgele ve güvenli yeni bir mesafe belirle
+        // Bir sonraki platform için rastgele yeni dikey mesafe belirle (1.8f - 2.4f)
         nextSpawnDistance = Random.Range(minDistance, maxDistance);
     }
 }
