@@ -15,8 +15,8 @@ public class GameManager : MonoBehaviour
 
     [Header("Hız Ayarları (Kontrollü ve Dengeli)")]
     public float baslangicHizi = 2.0f;
-    public float maksimumHiz = 2.4f;
-    [Tooltip("Maksimum hıza ve zorluğa ulaşılacak hedef skor puanı (1000 ve sonrasında 2.4 hızında kalır)")]
+    public float maksimumHiz = 2.3f;
+    [Tooltip("Maksimum hıza ve zorluğa ulaşılacak hedef skor puanı (1000 ve sonrasında 2.3 hızında kalır)")]
     public float maxHizSkoru = 1000f;
 
     [Header("UI Objeleri")]

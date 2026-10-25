@@ -3215,7 +3215,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GameManager
   baslangicHizi: 2
-  maksimumHiz: 2.4
+  maksimumHiz: 2.3
   maxHizSkoru: 1000
   canKazanmaSesi: {fileID: 8300000, guid: 2a46e81b341b4169b6d93cb2f4ed8ae8, type: 3}
   scoreText: {fileID: 1842686727}
