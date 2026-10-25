@@ -1,5 +1,6 @@
-using UnityEngine;
-using UnityEngine.UI; // Slider kullanabilmek için bu kütüphane þart
+ï»¿using UnityEngine;
+using UnityEngine.UI;
+using TMPro;
 
 public class SettingsManager : MonoBehaviour
 {
@@ -7,21 +8,25 @@ public class SettingsManager : MonoBehaviour
     public GameObject ayarlarPaneli;
     public Slider sesSlider;
 
+    [Header("Kontrol AyarlarÄ±")]
+    [Tooltip("Kontrol modunu gÃ¶steren buton metni (Ã–rn: TUÅžLAR / JÄ°ROSKOP)")]
+    public TextMeshProUGUI kontrolButonText;
+
     void Start()
     {
-        // PC hafýzasýndaki ses ayarýný çek (Yoksa 1 yani %100 kabul et)
+        // Ses ayarÄ±nÄ± yÃ¼kle
         float kayitliSes = PlayerPrefs.GetFloat("OyunSesi", 1f);
-
-        // Oyunun genel sesini ayarla
         AudioListener.volume = kayitliSes;
 
-        // Slider çubuðunu kayýtlý sese göre güncelle
         if (sesSlider != null)
         {
             sesSlider.value = kayitliSes;
         }
 
-        // Oyun baþlarken ayarlar paneli kapalý dursun
+        // KayÄ±tlÄ± kontrol modunu yÃ¼kle ve metni gÃ¼ncelle
+        int kayitliMod = PlayerPrefs.GetInt("ControlMode", 0);
+        GuncelleKontrolText(kayitliMod);
+
         if (ayarlarPaneli != null)
         {
             ayarlarPaneli.SetActive(false);
@@ -30,20 +35,45 @@ public class SettingsManager : MonoBehaviour
 
     public void PaneliAc()
     {
-        ayarlarPaneli.SetActive(true);
+        if (ayarlarPaneli != null) ayarlarPaneli.SetActive(true);
     }
 
     public void PaneliKapat()
     {
-        ayarlarPaneli.SetActive(false);
+        if (ayarlarPaneli != null) ayarlarPaneli.SetActive(false);
     }
 
     public void SesAyarla(float yeniSes)
     {
-        // Genel sesi deðiþtir
         AudioListener.volume = yeniSes;
-
-        // Yeni ses seviyesini kaydet ki oyunu kapatýp açýnca hatýrlasýn
         PlayerPrefs.SetFloat("OyunSesi", yeniSes);
+    }
+
+    /// <summary>
+    /// Ayarlar panelindeki butona tÄ±klandÄ±ÄŸÄ±nda modlarÄ± sÄ±rayla deÄŸiÅŸtirir.
+    /// 0 = TuÅŸlar, 1 = Jiroskop (EÄŸim)
+    /// </summary>
+    public void KontrolModunuDegistir()
+    {
+        int mevcutMod = PlayerPrefs.GetInt("ControlMode", 0);
+        int yeniMod = (mevcutMod == 0) ? 1 : 0;
+        PlayerPrefs.SetInt("ControlMode", yeniMod);
+        PlayerPrefs.Save();
+        GuncelleKontrolText(yeniMod);
+    }
+
+    public void SetControlMode(int mode)
+    {
+        PlayerPrefs.SetInt("ControlMode", mode);
+        PlayerPrefs.Save();
+        GuncelleKontrolText(mode);
+    }
+
+    private void GuncelleKontrolText(int mode)
+    {
+        if (kontrolButonText != null)
+        {
+            kontrolButonText.text = (mode == 1) ? "JIROSKOP" : "TUÅž";
+        }
     }
 }

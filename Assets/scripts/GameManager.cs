@@ -4,18 +4,20 @@ using TMPro;
 
 public class GameManager : MonoBehaviour
 {
-    public static float globalPlatformSpeed = 4f;
+    public static float globalPlatformSpeed = 2.0f;
+    public static float currentScore = 0f;
 
     [Header("Mobil Performans ve Optimizasyon")]
-    [Tooltip("Mobil cihazlarda sabit FPS hedefi (60 FPS akıcı ve pil dostudur)")]
+    [Tooltip("Mobil cihazlarda sabit FPS hedefi (90 FPS akıcıdır)")]
     public int targetFPS = 90;
-    [Tooltip("Hasar alındığında telefonun hafifçe titremesi")]
+    [Tooltip("Hasar alındığında telefonun hafifçe titremesi (Haptic Feedback)")]
     public bool enableVibration = true;
 
-    [Header("Hız Ayarları")]
-    public float baslangicHizi = 4f;
-    [Range(0f, 0.5f)] public float hizlanmaMiktari = 0.05f;
-    public float maksimumHiz = 8f;
+    [Header("Hız Ayarları (Kontrollü ve Dengeli)")]
+    public float baslangicHizi = 2.0f;
+    public float maksimumHiz = 2.3f;
+    [Tooltip("Maksimum hıza ve zorluğa ulaşılacak hedef skor puanı (1000 ve sonrasında 2.3 hızında kalır)")]
+    public float maxHizSkoru = 1000f;
 
     [Header("UI Objeleri")]
     public TextMeshProUGUI scoreText;
@@ -24,6 +26,11 @@ public class GameManager : MonoBehaviour
     public GameObject mobileControlsPanel;
     public TextMeshProUGUI finalScoreText;
     public TextMeshProUGUI highScoreText;
+
+    [Header("Ses Efektleri")]
+    [Tooltip("Can alındığında çalan ses efekti")]
+    public AudioClip canKazanmaSesi;
+    private AudioSource audioSource;
 
     [Header("Oyun Ayarları")]
     public int health = 3;
@@ -37,20 +44,30 @@ public class GameManager : MonoBehaviour
     private float score;
     private bool isGameActive = true;
 
+    void Awake()
+    {
+        QualitySettings.vSyncCount = 0; // vSync kapatılarak targetFrameRate'in mobilde devreye girmesi sağlanır
+    }
+
     void Start()
     {
-        // 1. MOBİL PERFORMANS VE PİL AYARLARI
-        QualitySettings.vSyncCount = 0; // vSync kapatılarak targetFrameRate'in mobilde devreye girmesi sağlanır
         Application.targetFrameRate = targetFPS;
         Screen.sleepTimeout = SleepTimeout.NeverSleep; // Oyun esnasında telefon ekranının kararmasını engeller
 
+        audioSource = GetComponent<AudioSource>();
+        if (audioSource == null) audioSource = gameObject.AddComponent<AudioSource>();
+
         globalPlatformSpeed = baslangicHizi;
         score = 0;
+        currentScore = 0;
         isGameActive = true;
         UpdateHealthUI();
         Time.timeScale = 1;
 
         GuvenliPlatformOlustur();
+
+        if (gameOverPanel != null) gameOverPanel.SetActive(false);
+        if (mobileControlsPanel != null) mobileControlsPanel.SetActive(true);
     }
 
     void Update()
@@ -60,13 +77,33 @@ public class GameManager : MonoBehaviour
         if (isGameActive)
         {
             score += Time.deltaTime * 10;
+            currentScore = score;
             if (scoreText != null) scoreText.text = "Skor: " + (int)score;
 
-            if (globalPlatformSpeed < maksimumHiz)
-            {
-                globalPlatformSpeed += Time.deltaTime * hizlanmaMiktari;
-            }
+            // 1000 puana kadar platform hızını pürüzsüzce 2.4'e artır, 1000 ve sonrasında 2.4'te sabitle
+            float hizOrani = Mathf.Clamp01(score / maxHizSkoru);
+            globalPlatformSpeed = Mathf.Lerp(baslangicHizi, maksimumHiz, hizOrani);
         }
+    }
+
+    /// <summary>
+    /// Can pickup'ı toplandığında veya ödül kazanıldığında can ekler ve ses efektini çalar.
+    /// </summary>
+    public void AddHealth(int amount = 1)
+    {
+        health += amount;
+        UpdateHealthUI();
+
+        if (canKazanmaSesi != null)
+        {
+            if (audioSource == null) audioSource = GetComponent<AudioSource>();
+            if (audioSource == null) audioSource = gameObject.AddComponent<AudioSource>();
+            audioSource.PlayOneShot(canKazanmaSesi);
+        }
+
+#if UNITY_ANDROID && !UNITY_EDITOR
+        if (enableVibration) Handheld.Vibrate();
+#endif
     }
 
     public void TakeDamage()
@@ -79,16 +116,24 @@ public class GameManager : MonoBehaviour
         // Hasar anında hafif mobil titreşim (Haptic Feedback)
         if (enableVibration)
         {
-#if UNITY_ANDROID || UNITY_IOS
+#if UNITY_ANDROID && !UNITY_EDITOR
             Handheld.Vibrate();
 #endif
         }
 
-        if (health <= 0) GameOver();
+        if (health <= 0)
+        {
+            GameOver();
+        }
         else
         {
-            player.transform.position = respawnPoint.position;
-            player.GetComponent<Rigidbody2D>().linearVelocity = Vector2.zero;
+            if (player != null && respawnPoint != null)
+            {
+                player.transform.position = respawnPoint.position;
+                Rigidbody2D rb = player.GetComponent<Rigidbody2D>();
+                if (rb != null) rb.linearVelocity = Vector2.zero;
+            }
+            GuvenliPlatformOlustur();
         }
     }
 
@@ -101,9 +146,16 @@ public class GameManager : MonoBehaviour
         }
     }
 
+    void UpdateHealthUI()
+    {
+        if (healthText != null) healthText.text = "Can: " + health;
+    }
+
     void GameOver()
     {
         isGameActive = false;
+        globalPlatformSpeed = 0;
+
         if (gameOverPanel != null) gameOverPanel.SetActive(true);
 
         // Mobil butonları GameOver anında otomatik gizle
@@ -120,36 +172,50 @@ public class GameManager : MonoBehaviour
             }
         }
 
-        int currentScore = (int)score;
+        int currentScoreInt = (int)score;
         int highScore = PlayerPrefs.GetInt("HighScore", 0);
 
-        if (currentScore > highScore)
+        if (currentScoreInt > highScore)
         {
-            highScore = currentScore;
+            highScore = currentScoreInt;
             PlayerPrefs.SetInt("HighScore", highScore);
             PlayerPrefs.Save(); // Mobilde skorun anında kalıcı belleğe yazılmasını garantiler
         }
 
-        if (finalScoreText != null) finalScoreText.text = "SKORUN: " + currentScore;
+        if (finalScoreText != null) finalScoreText.text = "SKORUN: " + currentScoreInt;
         if (highScoreText != null) highScoreText.text = "EN İYİ: " + highScore;
 
         Time.timeScale = 0;
     }
 
+    /// <summary>
+    /// Kontrol modunu (0: Tuşlar <-> 1: Jiroskop) değiştirir ve anında uygular.
+    /// UI butonlarının OnClick olayına atanabilir.
+    /// </summary>
+    public void KontrolModunuDegistir()
+    {
+        int current = PlayerPrefs.GetInt("ControlMode", 0);
+        int next = (current == 0) ? 1 : 0;
+        PlayerPrefs.SetInt("ControlMode", next);
+        PlayerPrefs.Save();
+
+        PlayerController pc = Object.FindFirstObjectByType<PlayerController>();
+        if (pc != null)
+        {
+            pc.controlMode = next;
+            pc.ApplyControlModeUI();
+        }
+    }
+
     public void RestartGame()
     {
         Time.timeScale = 1;
-        SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+        SceneManager.LoadScene(SceneManager.GetActiveScene().name);
     }
 
     public void GoToMenu()
     {
         Time.timeScale = 1;
-        SceneManager.LoadScene(0);
-    }
-
-    void UpdateHealthUI()
-    {
-        if (healthText != null) healthText.text = "Can: " + health;
+        SceneManager.LoadScene("MenuScene");
     }
 }
