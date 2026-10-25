@@ -1,13 +1,14 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 public class PlayerController : MonoBehaviour
 {
     [Header("Hareket Ayarları")]
     [Tooltip("Yatay hareket hızı (5.5 dengeli ve kontrollü bir hızdır)")]
     public float moveSpeed = 5.5f;
-    [Tooltip("Zıplama gücü (6.8 bir zıplayışta tek platform geçecek ideal güçtür)")]
-    public float jumpForce = 6.0f;
+    [Tooltip("Zıplama gücü (5.2 bir zıplayışta tek platform geçecek ideal güçtür)")]
+    public float jumpForce = 5.2f;
     private Rigidbody2D rb;
+    private float baseGravityScale = 1.5f;
 
     [Header("Oynanış Hissi (Game Feel)")]
     [Tooltip("Platformdan düştükten sonra zıplamaya izin verilen tolerans süresi (saniye)")]
@@ -59,6 +60,8 @@ public class PlayerController : MonoBehaviour
     void Start()
     {
         rb = GetComponent<Rigidbody2D>();
+        if (rb != null) baseGravityScale = rb.gravityScale;
+
         audioSource = GetComponent<AudioSource>();
 
         // Kayıtlı kontrol modunu yükle (Varsayılan: 0 - Butonlar)
@@ -115,6 +118,13 @@ public class PlayerController : MonoBehaviour
             CalculateScreenBounds();
         }
 
+        // Oyun hızlandıkça dikeyde ve yatayda çevikliği artıran dinamik katsayı
+        float speedRatio = (GameManager.globalPlatformSpeed > 0f) ? (GameManager.globalPlatformSpeed / 2.2f) : 1f;
+        speedRatio = Mathf.Clamp(speedRatio, 1f, 1.82f); // 2.2'den 4.0'a oran: ~1.0 ile 1.82 arası
+
+        // Dikey Çeviklik: Yerçekimi oyun hızıyla güçlenir; böylece karakter havada asılı kalmaz, platformlara seri ve tok iner!
+        rb.gravityScale = baseGravityScale * speedRatio;
+
         // 1. HAREKET (Tuşlar, Klavye veya Jiroskop Eğim)
         float moveInput = 0f;
 
@@ -134,7 +144,9 @@ public class PlayerController : MonoBehaviour
             moveInput = Mathf.Abs(mobileMoveInput) > 0.01f ? mobileMoveInput : keyboardInput;
         }
 
-        rb.linearVelocity = new Vector2(moveInput * moveSpeed, rb.linearVelocity.y);
+        // Hızlı akan platformlara yetişebilmek için yatay hız da hafifçe çevikleşir
+        float currentMoveSpeed = moveSpeed * Mathf.Sqrt(speedRatio);
+        rb.linearVelocity = new Vector2(moveInput * currentMoveSpeed, rb.linearVelocity.y);
 
         // 2. YÖN ÇEVİRME
         if (moveInput > 0)
@@ -179,7 +191,10 @@ public class PlayerController : MonoBehaviour
         if (jumpBufferCounter > 0f && coyoteTimeCounter > 0f)
         {
             rb.linearVelocity = new Vector2(rb.linearVelocity.x, 0);
-            rb.AddForce(Vector2.up * jumpForce, ForceMode2D.Impulse);
+
+            // Zıplama gücü artan yerçekimiyle dengelenir; zıplama yüksekliği sabit kalırken iniş süresi çok daha çevik ve seridir!
+            float currentJumpForce = jumpForce * Mathf.Sqrt(speedRatio);
+            rb.AddForce(Vector2.up * currentJumpForce, ForceMode2D.Impulse);
 
             jumpBufferCounter = 0f;
             coyoteTimeCounter = 0f;

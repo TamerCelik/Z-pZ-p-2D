@@ -1,21 +1,22 @@
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.SceneManagement;
 using TMPro;
 
 public class GameManager : MonoBehaviour
 {
-    public static float globalPlatformSpeed = 4f;
+    public static float globalPlatformSpeed = 2.2f;
 
     [Header("Mobil Performans ve Optimizasyon")]
-    [Tooltip("Mobil cihazlarda sabit FPS hedefi (60 FPS akıcı ve pil dostudur)")]
+    [Tooltip("Mobil cihazlarda sabit FPS hedefi (90 FPS akıcıdır)")]
     public int targetFPS = 90;
-    [Tooltip("Hasar alındığında telefonun hafifçe titremesi")]
+    [Tooltip("Hasar alındığında telefonun hafifçe titremesi (Haptic Feedback)")]
     public bool enableVibration = true;
 
     [Header("Hız Ayarları")]
     public float baslangicHizi = 2.2f;
-    [Range(0f, 0.5f)] public float hizlanmaMiktari = 0.04f;
-    public float maksimumHiz = 6.0f;
+    public float maksimumHiz = 4.0f;
+    [Tooltip("Maksimum hıza ulaşılacak hedef skor puanı (1000 ve sonrasında 4.0 hızında kalır)")]
+    public float maxHizSkoru = 1000f;
 
     [Header("UI Objeleri")]
     public TextMeshProUGUI scoreText;
@@ -37,10 +38,13 @@ public class GameManager : MonoBehaviour
     private float score;
     private bool isGameActive = true;
 
+    void Awake()
+    {
+        QualitySettings.vSyncCount = 0; // vSync kapatılarak targetFrameRate'in mobilde devreye girmesi sağlanır
+    }
+
     void Start()
     {
-        // 1. MOBİL PERFORMANS VE PİL AYARLARI
-        QualitySettings.vSyncCount = 0; // vSync kapatılarak targetFrameRate'in mobilde devreye girmesi sağlanır
         Application.targetFrameRate = targetFPS;
         Screen.sleepTimeout = SleepTimeout.NeverSleep; // Oyun esnasında telefon ekranının kararmasını engeller
 
@@ -51,6 +55,9 @@ public class GameManager : MonoBehaviour
         Time.timeScale = 1;
 
         GuvenliPlatformOlustur();
+
+        if (gameOverPanel != null) gameOverPanel.SetActive(false);
+        if (mobileControlsPanel != null) mobileControlsPanel.SetActive(true);
     }
 
     void Update()
@@ -62,10 +69,9 @@ public class GameManager : MonoBehaviour
             score += Time.deltaTime * 10;
             if (scoreText != null) scoreText.text = "Skor: " + (int)score;
 
-            if (globalPlatformSpeed < maksimumHiz)
-            {
-                globalPlatformSpeed += Time.deltaTime * hizlanmaMiktari;
-            }
+            // 1000 puana kadar platform hızını pürüzsüzce 4.0'a artır, 1000 ve sonrasında 4.0'da sabitle
+            float hizOrani = Mathf.Clamp01(score / maxHizSkoru);
+            globalPlatformSpeed = Mathf.Lerp(baslangicHizi, maksimumHiz, hizOrani);
         }
     }
 
@@ -79,16 +85,24 @@ public class GameManager : MonoBehaviour
         // Hasar anında hafif mobil titreşim (Haptic Feedback)
         if (enableVibration)
         {
-#if UNITY_ANDROID || UNITY_IOS
+#if UNITY_ANDROID && !UNITY_EDITOR
             Handheld.Vibrate();
 #endif
         }
 
-        if (health <= 0) GameOver();
+        if (health <= 0)
+        {
+            GameOver();
+        }
         else
         {
-            player.transform.position = respawnPoint.position;
-            player.GetComponent<Rigidbody2D>().linearVelocity = Vector2.zero;
+            if (player != null && respawnPoint != null)
+            {
+                player.transform.position = respawnPoint.position;
+                Rigidbody2D rb = player.GetComponent<Rigidbody2D>();
+                if (rb != null) rb.linearVelocity = Vector2.zero;
+            }
+            GuvenliPlatformOlustur();
         }
     }
 
@@ -101,9 +115,16 @@ public class GameManager : MonoBehaviour
         }
     }
 
+    void UpdateHealthUI()
+    {
+        if (healthText != null) healthText.text = "Can: " + health;
+    }
+
     void GameOver()
     {
         isGameActive = false;
+        globalPlatformSpeed = 0;
+
         if (gameOverPanel != null) gameOverPanel.SetActive(true);
 
         // Mobil butonları GameOver anında otomatik gizle
@@ -137,8 +158,8 @@ public class GameManager : MonoBehaviour
     }
 
     /// <summary>
-    /// Kontrol modunu (0: Tuslar <-> 1: Jiroskop) degistirir ve aninda uygular.
-    /// UI butonlarinin OnClick olayina atanabilir.
+    /// Kontrol modunu (0: Tuşlar <-> 1: Jiroskop) değiştirir ve anında uygular.
+    /// UI butonlarının OnClick olayına atanabilir.
     /// </summary>
     public void KontrolModunuDegistir()
     {
@@ -158,17 +179,12 @@ public class GameManager : MonoBehaviour
     public void RestartGame()
     {
         Time.timeScale = 1;
-        SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+        SceneManager.LoadScene(SceneManager.GetActiveScene().name);
     }
 
     public void GoToMenu()
     {
         Time.timeScale = 1;
-        SceneManager.LoadScene(0);
-    }
-
-    void UpdateHealthUI()
-    {
-        if (healthText != null) healthText.text = "Can: " + health;
+        SceneManager.LoadScene("MenuScene");
     }
 }

@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 
 public class PlatformSpawner : MonoBehaviour
 {
@@ -6,10 +6,10 @@ public class PlatformSpawner : MonoBehaviour
 
     [Header("Mesafe Ayarları (Rastgele & Ulaşılabilir)")]
     [Tooltip("Platformlar arası minimum dikey mesafe")]
-    public float minDistance = 1.4f;
+    public float minDistance = 1.3f;
 
     [Tooltip("Platformlar arası maksimum dikey mesafe (tek zıplayışta 2 platform geçmeyi önler)")]
-    public float maxDistance = 1.9f;
+    public float maxDistance = 1.8f;
 
     [Tooltip("Ekranın sağ ve sol kenar sınırları (Ekran boyutuna göre otomatik ayarlanır)")]
     public float xLimit = 2.0f;
