@@ -2402,10 +2402,14 @@ MonoBehaviour:
   - {fileID: 661938512577522053, guid: 86a8a8e55c2b4804184369bc161cefbb, type: 3}
   minDistance: 1.3
   maxDistance: 1.8
-  movingPlatformChance: 0.35
   xLimit: 2
-  maxHorizontalStep: 2.5
+  maxHorizontalStep: 2.4
   minHorizontalStep: 0.6
+  baslangicHareketSans: 0.1
+  maksimumHareketSans: 0.6
+  heartSprite: {fileID: -7097123367695304140, guid: 9b209cf11f1001043b6096ef02d28481, type: 3}
+  heartSpawnChance: 0.15
+  minPlatformsBetweenHearts: 7
 --- !u!4 &1104604052
 Transform:
   m_ObjectHideFlags: 0
@@ -3211,7 +3215,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GameManager
   baslangicHizi: 2
-  maksimumHiz: 2.9
+  maksimumHiz: 2.5
   maxHizSkoru: 1000
   scoreText: {fileID: 1842686727}
   healthText: {fileID: 16148061}

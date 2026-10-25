@@ -15,8 +15,8 @@ public class GameManager : MonoBehaviour
 
     [Header("Hız Ayarları (Kontrollü ve Dengeli)")]
     public float baslangicHizi = 2.0f;
-    public float maksimumHiz = 2.9f;
-    [Tooltip("Maksimum hıza ve zorluğa ulaşılacak hedef skor puanı (1000 ve sonrasında 2.9 hızında kalır)")]
+    public float maksimumHiz = 2.5f;
+    [Tooltip("Maksimum hıza ve zorluğa ulaşılacak hedef skor puanı (1000 ve sonrasında 2.5 hızında kalır)")]
     public float maxHizSkoru = 1000f;
 
     [Header("UI Objeleri")]
@@ -72,10 +72,23 @@ public class GameManager : MonoBehaviour
             currentScore = score;
             if (scoreText != null) scoreText.text = "Skor: " + (int)score;
 
-            // 1000 puana kadar platform hızını pürüzsüzce 2.9'a artır, 1000 ve sonrasında 2.9'da sabitle
+            // 1000 puana kadar platform hızını pürüzsüzce 2.5'e artır, 1000 ve sonrasında 2.5'te sabitle
             float hizOrani = Mathf.Clamp01(score / maxHizSkoru);
             globalPlatformSpeed = Mathf.Lerp(baslangicHizi, maksimumHiz, hizOrani);
         }
+    }
+
+    /// <summary>
+    /// Can pickup'ı toplandığında veya ödül kazanıldığında can ekler.
+    /// </summary>
+    public void AddHealth(int amount = 1)
+    {
+        health += amount;
+        UpdateHealthUI();
+
+#if UNITY_ANDROID && !UNITY_EDITOR
+        if (enableVibration) Handheld.Vibrate();
+#endif
     }
 
     public void TakeDamage()

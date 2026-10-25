@@ -27,6 +27,16 @@ public class PlatformSpawner : MonoBehaviour
     [Tooltip("1000 puanda ulaşılan maksimum hareketli platform şansı (%60)")]
     public float maksimumHareketSans = 0.60f;
 
+    [Header("Nadir Can İkonu (1000+ Skor Ödülü)")]
+    [Tooltip("Can ikonu sprite'ı")]
+    public Sprite heartSprite;
+    [Range(0f, 1f)]
+    [Tooltip("1000 skordan sonra platformda can çıkma olasılığı (%15)")]
+    public float heartSpawnChance = 0.15f;
+    [Tooltip("İki can arasında minimum platform sayısı")]
+    public int minPlatformsBetweenHearts = 7;
+    private int platformsSinceLastHeart = 10;
+
     private GameObject lastSpawnedPlatform;
     private float nextSpawnDistance = 1.5f;
 
@@ -115,7 +125,52 @@ public class PlatformSpawner : MonoBehaviour
             }
         }
 
+        // 1000 skordan sonra nadir olarak platform üzerinde can ikonu üret
+        if (GameManager.currentScore >= 1000f && platformsSinceLastHeart >= minPlatformsBetweenHearts)
+        {
+            if (Random.value < heartSpawnChance)
+            {
+                SpawnHeartPickup(lastSpawnedPlatform);
+                platformsSinceLastHeart = 0;
+            }
+            else
+            {
+                platformsSinceLastHeart++;
+            }
+        }
+        else
+        {
+            platformsSinceLastHeart++;
+        }
+
         // Bir sonraki platform için rastgele yeni dikey mesafe belirle (1.3f - 1.8f)
         nextSpawnDistance = Random.Range(minDistance, maxDistance);
+    }
+
+    /// <summary>
+    /// Platformun üzerine toplanabilir bir can ikonu yerleştirir.
+    /// </summary>
+    void SpawnHeartPickup(GameObject platform)
+    {
+        GameObject heartObj = new GameObject("HealthPickup");
+        // Platformun tam üzerine yerleştir
+        heartObj.transform.position = new Vector3(platform.transform.position.x, platform.transform.position.y + 0.65f, 0f);
+
+        SpriteRenderer sr = heartObj.AddComponent<SpriteRenderer>();
+        if (heartSprite != null)
+        {
+            sr.sprite = heartSprite;
+        }
+        sr.sortingOrder = 5; // Platform ve karakterin önünde net görünür
+        heartObj.transform.localScale = new Vector3(0.55f, 0.55f, 1f);
+
+        CircleCollider2D col = heartObj.AddComponent<CircleCollider2D>();
+        col.isTrigger = true;
+        col.radius = 0.5f;
+
+        heartObj.AddComponent<HealthPickup>();
+
+        // Platformla birlikte aşağı kayması ve yatayda salınması için platformun çocuğu yap
+        heartObj.transform.SetParent(platform.transform);
     }
 }
