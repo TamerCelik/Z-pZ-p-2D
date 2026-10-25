@@ -3210,8 +3210,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d16e16555c21153499a88a3854cb49c6, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GameManager
-  baslangicHizi: 2.2
-  maksimumHiz: 4
+  baslangicHizi: 2
+  maksimumHiz: 2.9
   maxHizSkoru: 1000
   scoreText: {fileID: 1842686727}
   healthText: {fileID: 16148061}

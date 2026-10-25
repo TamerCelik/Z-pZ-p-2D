@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 public class PlatformSpawner : MonoBehaviour
 {
@@ -21,13 +21,14 @@ public class PlatformSpawner : MonoBehaviour
     [Tooltip("Platformların tam üst üste binmesini önlemek için minimum yatay mesafe")]
     public float minHorizontalStep = 0.6f;
 
-    [Header("Hareketli Platformlar (Sağa - Sola Salınım)")]
-    [Range(0f, 1f)]
-    [Tooltip("Platformun sağa sola salınarak hareket etme olasılığı")]
-    public float movingPlatformChance = 0.35f;
+    [Header("Dinamik Zorluk (Hareketli Platformlar)")]
+    [Tooltip("Oyun başında hareketli platform şansı (%10)")]
+    public float baslangicHareketSans = 0.10f;
+    [Tooltip("1000 puanda ulaşılan maksimum hareketli platform şansı (%60)")]
+    public float maksimumHareketSans = 0.60f;
 
     private GameObject lastSpawnedPlatform;
-    private float nextSpawnDistance = 1.6f;
+    private float nextSpawnDistance = 1.5f;
 
     void Start()
     {
@@ -96,22 +97,25 @@ public class PlatformSpawner : MonoBehaviour
 
         lastSpawnedPlatform = Instantiate(platformPrefabs[randomIndex], spawnPos, Quaternion.identity);
 
-        // Bazı platformları sağa-sola hareketli yap
+        // Skor arttıkça hareketli platform oranı %10'dan %60'a kadar dinamik artar
+        float progress = Mathf.Clamp01(GameManager.currentScore / 1000f);
+        float currentMovingChance = Mathf.Lerp(baslangicHareketSans, maksimumHareketSans, progress);
+
         PlatformMovement pm = lastSpawnedPlatform.GetComponent<PlatformMovement>();
-        if (pm != null && Random.value < movingPlatformChance)
+        if (pm != null && Random.value < currentMovingChance)
         {
-            float randomSpeed = Random.Range(1.8f, 2.6f);
-            float randomDist = Random.Range(0.8f, 1.3f);
+            float randomSpeed = Random.Range(1.6f, 2.4f);
+            float randomDist = Random.Range(0.7f, 1.2f);
             pm.SetupMovement(true, randomSpeed, randomDist);
 
             SpriteRenderer sr = lastSpawnedPlatform.GetComponent<SpriteRenderer>();
             if (sr != null)
             {
-                sr.color = new Color(0.65f, 0.95f, 1.0f); // Hareketli olduğunu belli eden şık mavi tonu
+                sr.color = new Color(0.65f, 0.95f, 1.0f); // Hareketli olduğunu belli eden şık neon mavi tonu
             }
         }
 
-        // Bir sonraki platform için rastgele yeni dikey mesafe belirle (1.4f - 1.9f)
+        // Bir sonraki platform için rastgele yeni dikey mesafe belirle (1.3f - 1.8f)
         nextSpawnDistance = Random.Range(minDistance, maxDistance);
     }
 }

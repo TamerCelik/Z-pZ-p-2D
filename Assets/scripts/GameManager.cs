@@ -4,7 +4,8 @@ using TMPro;
 
 public class GameManager : MonoBehaviour
 {
-    public static float globalPlatformSpeed = 2.2f;
+    public static float globalPlatformSpeed = 2.0f;
+    public static float currentScore = 0f;
 
     [Header("Mobil Performans ve Optimizasyon")]
     [Tooltip("Mobil cihazlarda sabit FPS hedefi (90 FPS akıcıdır)")]
@@ -12,10 +13,10 @@ public class GameManager : MonoBehaviour
     [Tooltip("Hasar alındığında telefonun hafifçe titremesi (Haptic Feedback)")]
     public bool enableVibration = true;
 
-    [Header("Hız Ayarları")]
-    public float baslangicHizi = 2.2f;
-    public float maksimumHiz = 4.0f;
-    [Tooltip("Maksimum hıza ulaşılacak hedef skor puanı (1000 ve sonrasında 4.0 hızında kalır)")]
+    [Header("Hız Ayarları (Kontrollü ve Dengeli)")]
+    public float baslangicHizi = 2.0f;
+    public float maksimumHiz = 2.9f;
+    [Tooltip("Maksimum hıza ve zorluğa ulaşılacak hedef skor puanı (1000 ve sonrasında 2.9 hızında kalır)")]
     public float maxHizSkoru = 1000f;
 
     [Header("UI Objeleri")]
@@ -50,6 +51,7 @@ public class GameManager : MonoBehaviour
 
         globalPlatformSpeed = baslangicHizi;
         score = 0;
+        currentScore = 0;
         isGameActive = true;
         UpdateHealthUI();
         Time.timeScale = 1;
@@ -67,9 +69,10 @@ public class GameManager : MonoBehaviour
         if (isGameActive)
         {
             score += Time.deltaTime * 10;
+            currentScore = score;
             if (scoreText != null) scoreText.text = "Skor: " + (int)score;
 
-            // 1000 puana kadar platform hızını pürüzsüzce 4.0'a artır, 1000 ve sonrasında 4.0'da sabitle
+            // 1000 puana kadar platform hızını pürüzsüzce 2.9'a artır, 1000 ve sonrasında 2.9'da sabitle
             float hizOrani = Mathf.Clamp01(score / maxHizSkoru);
             globalPlatformSpeed = Mathf.Lerp(baslangicHizi, maksimumHiz, hizOrani);
         }
@@ -141,17 +144,17 @@ public class GameManager : MonoBehaviour
             }
         }
 
-        int currentScore = (int)score;
+        int currentScoreInt = (int)score;
         int highScore = PlayerPrefs.GetInt("HighScore", 0);
 
-        if (currentScore > highScore)
+        if (currentScoreInt > highScore)
         {
-            highScore = currentScore;
+            highScore = currentScoreInt;
             PlayerPrefs.SetInt("HighScore", highScore);
             PlayerPrefs.Save(); // Mobilde skorun anında kalıcı belleğe yazılmasını garantiler
         }
 
-        if (finalScoreText != null) finalScoreText.text = "SKORUN: " + currentScore;
+        if (finalScoreText != null) finalScoreText.text = "SKORUN: " + currentScoreInt;
         if (highScoreText != null) highScoreText.text = "EN İYİ: " + highScore;
 
         Time.timeScale = 0;
