@@ -1840,8 +1840,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4aae2ce91b02f224782d604b2ceea96e, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PlayerController
-  moveSpeed: 6
-  jumpForce: 5.4
+  moveSpeed: 7.5
+  jumpForce: 8.5
+  coyoteTime: 0.15
+  jumpBufferTime: 0.15
   ayakNoktasi: {fileID: 921172664}
   ayakCapi: 0.3
   zeminKatmani:
@@ -2398,8 +2400,10 @@ MonoBehaviour:
   - {fileID: 8861716677356965117, guid: 86abc5f833c673e46ba7accf3843da52, type: 3}
   - {fileID: 8205181692295124216, guid: 5e61585efcb87e04a93f69b3e3e9a9fe, type: 3}
   - {fileID: 661938512577522053, guid: 86a8a8e55c2b4804184369bc161cefbb, type: 3}
-  platformDistance: 2.2
+  minDistance: 1.4
+  maxDistance: 2
   xLimit: 1.4
+  maxHorizontalStep: 1.2
 --- !u!4 &1104604052
 Transform:
   m_ObjectHideFlags: 0

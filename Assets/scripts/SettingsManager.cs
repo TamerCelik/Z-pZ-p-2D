@@ -9,7 +9,7 @@ public class SettingsManager : MonoBehaviour
     public Slider sesSlider;
 
     [Header("Kontrol Ayarları")]
-    [Tooltip("Kontrol modunu gösteren buton metni (Örn: KONTROL: TUŞLAR / JİROSKOP)")]
+    [Tooltip("Kontrol modunu gösteren buton metni (Örn: TUŞLAR / JİROSKOP)")]
     public TextMeshProUGUI kontrolButonText;
 
     void Start()
@@ -73,7 +73,7 @@ public class SettingsManager : MonoBehaviour
     {
         if (kontrolButonText != null)
         {
-            kontrolButonText.text = (mode == 1) ? "KONTROL: JİROSKOP" : "KONTROL: TUŞLAR";
+            kontrolButonText.text = (mode == 1) ? "JIROSKOP" : "TUŞ";
         }
     }
 }

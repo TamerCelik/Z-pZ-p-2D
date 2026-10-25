@@ -3,9 +3,18 @@
 public class PlayerController : MonoBehaviour
 {
     [Header("Hareket Ayarları")]
-    public float moveSpeed = 5f;
-    public float jumpForce = 12f;
+    public float moveSpeed = 7.5f;
+    public float jumpForce = 8.5f;
     private Rigidbody2D rb;
+
+    [Header("Oynanış Hissi (Game Feel)")]
+    [Tooltip("Platformdan düştükten sonra zıplamaya izin verilen tolerans süresi (saniye)")]
+    public float coyoteTime = 0.15f;
+    private float coyoteTimeCounter;
+
+    [Tooltip("Yere inmeden önce basılan zıplama girdisinin hatırlanma süresi (saniye)")]
+    public float jumpBufferTime = 0.15f;
+    private float jumpBufferCounter;
 
     [Header("Kontrol Modu (0: Butonlar, 1: Jiroskop/Eğim)")]
     [Tooltip("Kontrol tipi PlayerPrefs'ten otomatik yüklenir. İstenirse editörden test için değiştirilebilir.")]
@@ -139,17 +148,39 @@ public class PlayerController : MonoBehaviour
         float sinirliX = Mathf.Clamp(transform.position.x, minX, maxX);
         transform.position = new Vector2(sinirliX, transform.position.y);
 
-        // 4. ZEMİN KONTROLÜ
+        // 4. ZEMİN KONTROLÜ & COYOTE TIME
         yerdeMi = Physics2D.OverlapCircle(ayakNoktasi.position, ayakCapi, zeminKatmani);
 
-        // 5. ZIPLAMA VE SES (Klavye Space veya Mobil Buton)
-        bool jumpInput = Input.GetButtonDown("Jump") || mobileJumpRequested;
+        if (yerdeMi)
+        {
+            coyoteTimeCounter = coyoteTime;
+        }
+        else
+        {
+            coyoteTimeCounter -= Time.deltaTime;
+        }
+
+        // 5. ZIPLAMA GİRDİSİ & JUMP BUFFERING
+        bool jumpPressed = Input.GetButtonDown("Jump") || mobileJumpRequested;
         mobileJumpRequested = false;
 
-        if (jumpInput && yerdeMi)
+        if (jumpPressed)
+        {
+            jumpBufferCounter = jumpBufferTime;
+        }
+        else
+        {
+            jumpBufferCounter -= Time.deltaTime;
+        }
+
+        // Zıplama koşulu: Hem buffer geçerli, hem de coyote time içinde
+        if (jumpBufferCounter > 0f && coyoteTimeCounter > 0f)
         {
             rb.linearVelocity = new Vector2(rb.linearVelocity.x, 0);
             rb.AddForce(Vector2.up * jumpForce, ForceMode2D.Impulse);
+
+            jumpBufferCounter = 0f;
+            coyoteTimeCounter = 0f;
 
             if (audioSource != null && jumpSound != null)
             {
