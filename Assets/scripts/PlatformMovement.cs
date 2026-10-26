@@ -12,6 +12,10 @@ public class PlatformMovement : MonoBehaviour
     [Tooltip("Yatay salınım mesafesi (merkezden sağa ve sola)")]
     public float horizontalDistance = 1.0f;
 
+    [Header("Yok Olma Sınırı (Alt Bar Hizası)")]
+    [Tooltip("Platformun alt bar hizasında yok olacağı Y yüksekliği")]
+    public float destroyY = -2.85f;
+
     private float startX;
     private float screenLimit = 2.0f;
     private float randomOffset;
@@ -27,6 +31,10 @@ public class PlatformMovement : MonoBehaviour
         {
             float camHalfWidth = cam.orthographicSize * cam.aspect;
             screenLimit = Mathf.Clamp(camHalfWidth - 0.7f, 1.0f, 2.3f);
+
+            // Alt bar hizasını kamera boyutuna göre dinamik sabitle (-cam.orthographicSize + 2.15f)
+            // Kamera boyutu 5 iken: -5.0 + 2.15 = -2.85f (Platformlar tuşların arkasına asla geçmez)
+            destroyY = -cam.orthographicSize + 2.15f;
         }
     }
 
@@ -43,8 +51,8 @@ public class PlatformMovement : MonoBehaviour
             transform.position = new Vector3(newX, transform.position.y, transform.position.z);
         }
 
-        // 3. Ekrandan Çıkınca Temizleme
-        if (transform.position.y < -10f)
+        // 3. Alt Bar Hizasına Gelince Yok Etme (Tuşların arkasında kalmaz)
+        if (transform.position.y < destroyY)
         {
             Destroy(gameObject);
         }
