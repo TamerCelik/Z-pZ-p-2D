@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 
 public class PlatformMovement : MonoBehaviour
 {
@@ -14,7 +14,7 @@ public class PlatformMovement : MonoBehaviour
 
     [Header("Yok Olma Sınırı (Alt Bar Hizası)")]
     [Tooltip("Platformun alt bar hizasında yok olacağı Y yüksekliği")]
-    public float destroyY = -2.85f;
+    public float destroyY = -3.2f;
 
     private float startX;
     private float screenLimit = 2.0f;
@@ -34,7 +34,7 @@ public class PlatformMovement : MonoBehaviour
 
             // Alt bar hizasını kamera boyutuna göre dinamik sabitle (-cam.orthographicSize + 2.15f)
             // Kamera boyutu 5 iken: -5.0 + 2.15 = -2.85f (Platformlar tuşların arkasına asla geçmez)
-            destroyY = -cam.orthographicSize + 2.15f;
+            destroyY = -cam.orthographicSize + 1.8f;
         }
     }
 

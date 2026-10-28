@@ -1,10 +1,10 @@
-﻿using UnityEngine;
+using UnityEngine;
 using UnityEngine.SceneManagement;
 using TMPro;
 
 public class GameManager : MonoBehaviour
 {
-    public static float globalPlatformSpeed = 2.0f;
+    public static float globalPlatformSpeed = 1.7f;
     public static float currentScore = 0f;
 
     [Header("Mobil Performans ve Optimizasyon")]
@@ -14,7 +14,7 @@ public class GameManager : MonoBehaviour
     public bool enableVibration = true;
 
     [Header("Hız Ayarları (Kontrollü ve Dengeli)")]
-    public float baslangicHizi = 2.0f;
+    public float baslangicHizi = 1.7f;
     public float maksimumHiz = 2.3f;
     [Tooltip("Maksimum hıza ve zorluğa ulaşılacak hedef skor puanı (1000 ve sonrasında 2.3 hızında kalır)")]
     public float maxHizSkoru = 1000f;
