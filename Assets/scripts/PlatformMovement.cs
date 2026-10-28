@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 public class PlatformMovement : MonoBehaviour
 {
@@ -12,9 +12,9 @@ public class PlatformMovement : MonoBehaviour
     [Tooltip("Yatay salınım mesafesi (merkezden sağa ve sola)")]
     public float horizontalDistance = 1.0f;
 
-    [Header("Yok Olma Sınırı (Alt Bar Hizası)")]
-    [Tooltip("Platformun alt bar hizasında yok olacağı Y yüksekliği")]
-    public float destroyY = -3.2f;
+    [Header("Yok Olma Sınırı (Ekranın En Altı)")]
+    [Tooltip("Platformun barın arkasına tamamen gömüldükten sonra yok olacağı Y yüksekliği")]
+    public float destroyY = -5.5f;
 
     private float startX;
     private float screenLimit = 2.0f;
@@ -32,9 +32,8 @@ public class PlatformMovement : MonoBehaviour
             float camHalfWidth = cam.orthographicSize * cam.aspect;
             screenLimit = Mathf.Clamp(camHalfWidth - 0.7f, 1.0f, 2.3f);
 
-            // Alt bar hizasını kamera boyutuna göre dinamik sabitle (-cam.orthographicSize + 2.15f)
-            // Kamera boyutu 5 iken: -5.0 + 2.15 = -2.85f (Platformlar tuşların arkasına asla geçmez)
-            destroyY = -cam.orthographicSize + 1.8f;
+            // Platform barın arkasında tamamen kaybolup ekranın en altına inince silinir
+            destroyY = -cam.orthographicSize - 0.5f;
         }
     }
 
@@ -51,7 +50,7 @@ public class PlatformMovement : MonoBehaviour
             transform.position = new Vector3(newX, transform.position.y, transform.position.z);
         }
 
-        // 3. Alt Bar Hizasına Gelince Yok Etme (Tuşların arkasında kalmaz)
+        // 3. Ekranın En Altına Gelince Yok Etme (Barın içine tamamen girdikten sonra oyuncu görmeden silinir)
         if (transform.position.y < destroyY)
         {
             Destroy(gameObject);
