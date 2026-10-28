@@ -105,7 +105,7 @@ public class GameManager : MonoBehaviour
         {
             score += Time.deltaTime * 10;
             currentScore = score;
-            if (scoreText != null) scoreText.text = "Skor: " + (int)score;
+            if (scoreText != null) scoreText.text = "SKOR: " + (int)score;
 
             // 1000 puana kadar platform hızını pürüzsüzce maksimumHiz'a artır
             float hizOrani = Mathf.Clamp01(score / maxHizSkoru);
@@ -233,7 +233,7 @@ public class GameManager : MonoBehaviour
 
     void UpdateHealthUI()
     {
-        if (healthText != null) healthText.text = "Can: " + health;
+        if (healthText != null) healthText.text = "CAN: " + health;
     }
 
     void GameOver()
