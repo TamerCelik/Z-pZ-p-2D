@@ -12,6 +12,10 @@ public class PlatformMovement : MonoBehaviour
     [Tooltip("Yatay salınım mesafesi (merkezden sağa ve sola)")]
     public float horizontalDistance = 1.0f;
 
+    [Header("Yok Olma Sınırı (Ekranın En Altı)")]
+    [Tooltip("Platformun barın arkasına tamamen gömüldükten sonra yok olacağı Y yüksekliği")]
+    public float destroyY = -5.5f;
+
     private float startX;
     private float screenLimit = 2.0f;
     private float randomOffset;
@@ -27,6 +31,9 @@ public class PlatformMovement : MonoBehaviour
         {
             float camHalfWidth = cam.orthographicSize * cam.aspect;
             screenLimit = Mathf.Clamp(camHalfWidth - 0.7f, 1.0f, 2.3f);
+
+            // Platform barın arkasında tamamen kaybolup ekranın en altına inince silinir
+            destroyY = -cam.orthographicSize - 0.5f;
         }
     }
 
@@ -43,8 +50,8 @@ public class PlatformMovement : MonoBehaviour
             transform.position = new Vector3(newX, transform.position.y, transform.position.z);
         }
 
-        // 3. Ekrandan Çıkınca Temizleme
-        if (transform.position.y < -10f)
+        // 3. Ekranın En Altına Gelince Yok Etme (Barın içine tamamen girdikten sonra oyuncu görmeden silinir)
+        if (transform.position.y < destroyY)
         {
             Destroy(gameObject);
         }

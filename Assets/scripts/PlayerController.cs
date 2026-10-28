@@ -119,8 +119,8 @@ public class PlayerController : MonoBehaviour
         }
 
         // Oyun hızlandıkça dikeyde ve yatayda çevikliği artıran dinamik katsayı
-        float speedRatio = (GameManager.globalPlatformSpeed > 0f) ? (GameManager.globalPlatformSpeed / 2.0f) : 1f;
-        speedRatio = Mathf.Clamp(speedRatio, 1f, 1.20f); // 2.2'den 4.0'a oran: ~1.0 ile 1.82 arası
+        float speedRatio = (GameManager.globalPlatformSpeed > 0f) ? (GameManager.globalPlatformSpeed / 1.7f) : 1f;
+        speedRatio = Mathf.Clamp(speedRatio, 1f, 1.41f); // 2.2'den 4.0'a oran: ~1.0 ile 1.82 arası
 
         // Dikey Çeviklik: Yerçekimi oyun hızıyla güçlenir; böylece karakter havada asılı kalmaz, platformlara seri ve tok iner!
         rb.gravityScale = baseGravityScale * speedRatio;
