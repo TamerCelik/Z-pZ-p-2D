@@ -43,6 +43,8 @@ public class PlatformSpawner : MonoBehaviour
 
     private GameObject lastSpawnedPlatform;
     private float nextSpawnDistance = 1.7f;
+    private int consecutiveSameSideCount = 0;
+    private float lastDirection = 0f;
 
     void Start()
     {
@@ -81,30 +83,51 @@ public class PlatformSpawner : MonoBehaviour
         float chosenX = 0f;
         bool foundSafePosition = false;
 
-        // 1. Akıllı konum seçimi: Önceki platformun konumuna göre ters veya uzak yönü hedefle
+        // Doğal ve Çeşitli Konumlandırma (Monoton Çaprazlığı Önler):
+        // Bazen düz tırmanış, bazen orta şerit, bazen hafif adımlar, bazen geniş geçişler
         if (lastSpawnedPlatform != null)
         {
             float prevX = lastSpawnedPlatform.transform.position.x;
             
-            // Eğer önceki platform hareketliyse, hareket menzilini de hesaba kat
             PlatformMovement prevPm = lastSpawnedPlatform.GetComponent<PlatformMovement>();
             float movingMargin = (prevPm != null && prevPm.isMovingHorizontal) ? prevPm.horizontalDistance : 0f;
 
-            // Güvenli konum bulmak için 8 adede kadar akıllı deneme yap
-            for (int attempt = 0; attempt < 8; attempt++)
+            for (int attempt = 0; attempt < 12; attempt++)
             {
-                // Tercihen önceki platformun zıt tarafına yönel
-                float direction = (prevX > 0) ? -1f : 1f;
-                if (attempt > 2)
+                float candidateX = 0f;
+                // Formasyon Tipleri:
+                // 0: Düz / Hafif kayık tırmanış (çaprazlığı kesin olarak kırar!)
+                // 1: Orta hat (ekranın merkezine dönüş)
+                // 2: Dengeli yatay adım (rastgele sol ya da sağ)
+                // 3: Çapraz atlayış (ters tarafa geçiş)
+                int patternType = Random.Range(0, 4);
+
+                // Eğer son 2 platform üst üste aynı kenardaysa 3. platformu ortaya veya ters tarafa yönlendir
+                if (consecutiveSameSideCount >= 2)
                 {
-                    // Diğer yönleri de dene
-                    direction = (Random.value > 0.5f) ? 1f : -1f;
+                    patternType = (Random.value > 0.4f) ? 1 : 3;
                 }
 
-                float offset = Random.Range(minHorizontalStep + movingMargin, maxHorizontalStep) * direction;
-                float candidateX = prevX + offset;
+                switch (patternType)
+                {
+                    case 0: // Düz tırmanış / minik sapma (-0.55f ile +0.55f arası)
+                        candidateX = prevX + Random.Range(-0.55f, 0.55f);
+                        break;
+                    case 1: // Ekran ortası (-0.45f ile +0.45f)
+                        candidateX = Random.Range(-0.45f, 0.45f);
+                        break;
+                    case 2: // Orta boy adım (rastgele sağ veya sol)
+                        float stepDir = (Random.value > 0.5f) ? 1f : -1f;
+                        candidateX = prevX + (Random.Range(0.85f + movingMargin, 1.55f) * stepDir);
+                        break;
+                    case 3: // Geniş geçiş (karşı tarafa)
+                    default:
+                        float crossDir = (prevX >= 0) ? -1f : 1f;
+                        candidateX = prevX + (Random.Range(1.35f + movingMargin, maxHorizontalStep) * crossDir);
+                        break;
+                }
 
-                // Sınır dışına taşarsa duvardan içeriye doğru sektir (kenarda yığılmayı önler)
+                // Sınır dışına taşarsa duvardan içeriye doğru sektir
                 if (candidateX > xLimit)
                 {
                     candidateX = xLimit - (candidateX - xLimit);
@@ -116,27 +139,39 @@ public class PlatformSpawner : MonoBehaviour
 
                 candidateX = Mathf.Clamp(candidateX, -xLimit, xLimit);
 
-                // Yatayda önceki platformla doğrudan üst üste gelip gelmediğini kontrol et
-                if (Mathf.Abs(candidateX - prevX) >= (minHorizontalStep * 0.85f))
+                // Fiziksel çakışma kontrolü
+                Collider2D hit = Physics2D.OverlapBox(new Vector2(candidateX, transform.position.y), new Vector2(2.1f, 1.2f), 0f);
+                if (hit == null)
                 {
-                    // Fiziksel çakışma kontrolü: Doğrudan o alanda başka bir collider var mı?
-                    Collider2D hit = Physics2D.OverlapBox(new Vector2(candidateX, transform.position.y), new Vector2(2.4f, 1.3f), 0f);
-                    if (hit == null)
-                    {
-                        chosenX = candidateX;
-                        foundSafePosition = true;
-                        break;
-                    }
+                    chosenX = candidateX;
+                    foundSafePosition = true;
+                    break;
                 }
             }
         }
 
-        // Eğer hiçbir güvenli konum bulunamazsa ekranın ortasından veya rastgele bir aralıktan güvenli seç
+        // Eğer hiçbir güvenli konum bulunamazsa dengeli rastgele dağıt
         if (!foundSafePosition)
         {
-            chosenX = (lastSpawnedPlatform != null && lastSpawnedPlatform.transform.position.x > 0)
-                ? Random.Range(-xLimit, -0.3f)
-                : Random.Range(0.3f, xLimit);
+            float[] possibleSlots = new float[] { -xLimit * 0.7f, 0f, xLimit * 0.7f, Random.Range(-xLimit, xLimit) };
+            chosenX = possibleSlots[Random.Range(0, possibleSlots.Length)];
+        }
+
+        // Aynı kenarda kalma takibi (duvara sıkışmayı engeller)
+        if (Mathf.Abs(chosenX) > 0.6f)
+        {
+            float side = Mathf.Sign(chosenX);
+            if (side == lastDirection) consecutiveSameSideCount++;
+            else
+            {
+                lastDirection = side;
+                consecutiveSameSideCount = 1;
+            }
+        }
+        else
+        {
+            consecutiveSameSideCount = 0;
+            lastDirection = 0f;
         }
 
         Vector2 spawnPos = new Vector2(chosenX, transform.position.y);
