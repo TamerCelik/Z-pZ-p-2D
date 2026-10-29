@@ -1,39 +1,44 @@
 using UnityEngine;
 
+/// <summary>
+/// Karakter kontrolcüsü: Yatay hareket, zıplama ve oyun fiziğini yönetir.
+/// - Ekran sarma (Screen Wrap): Sol kenardan çıkınca sağdan, sağdan çıkınca soldan belirir.
+/// - Tek zıplama kuralı: Havada veya yükselirken asla üst üste zıplayamaz; sadece yere indiğinde zıplayabilir.
+/// </summary>
 public class PlayerController : MonoBehaviour
 {
     [Header("Hareket Ayarları")]
-    [Tooltip("Yatay hareket hızı (5.5 dengeli ve kontrollü bir hızdır)")]
+    [Tooltip("Yatay hareket hızı")]
     public float moveSpeed = 5.5f;
-    [Tooltip("Zıplama gücü (5.2 bir zıplayışta tek platform geçecek ideal güçtür)")]
+    [Tooltip("Zıplama gücü")]
     public float jumpForce = 5.2f;
     private Rigidbody2D rb;
     private float baseGravityScale = 1.5f;
 
     [Header("Oynanış Hissi (Game Feel)")]
     [Tooltip("Platformdan düştükten sonra zıplamaya izin verilen tolerans süresi (saniye)")]
-    public float coyoteTime = 0.15f;
+    public float coyoteTime = 0.12f;
     private float coyoteTimeCounter;
 
     [Tooltip("Yere inmeden önce basılan zıplama girdisinin hatırlanma süresi (saniye)")]
-    public float jumpBufferTime = 0.15f;
+    public float jumpBufferTime = 0.12f;
     private float jumpBufferCounter;
 
     [Header("Kontrol Modu (0: Butonlar, 1: Jiroskop/Eğim)")]
-    [Tooltip("Kontrol tipi PlayerPrefs'ten otomatik yüklenir. İstenirse editörden test için değiştirilebilir.")]
     public int controlMode = 0;
-    [Tooltip("Jiroskop eğim hassasiyeti (2.5 - 3.5 idealdir)")]
+    [Tooltip("Jiroskop eğim hassasiyeti")]
     public float tiltSensitivity = 3f;
 
-    [Header("Mobil Buton Referansları (Jiroskopta Otomatik Gizlenir)")]
+    [Header("Mobil Buton Referansları")]
     public GameObject leftButtonObj;
     public GameObject rightButtonObj;
 
-    [Header("Zemin Kontrolü")]
+    [Header("Zemin Kontrolü & Zıplama Kilidi")]
     public Transform ayakNoktasi;
-    public float ayakCapi = 0.3f;
+    public float ayakCapi = 0.28f;
     public LayerMask zeminKatmani;
     private bool yerdeMi;
+    private bool canJump = true; // Üst üste zıplamayı kesin olarak engeller
 
     [Header("Ses Efektleri")]
     public AudioClip jumpSound;
@@ -46,11 +51,10 @@ public class PlayerController : MonoBehaviour
     [Range(0f, 10f)]
     public float hasarSesiSiddeti = 1f;
 
-    [Header("Dinamik Ekran Sınırları")]
-    [Tooltip("0 olduğunda karakterin tam yarısı ekran çizgisini geçer.")]
-    public float playerWidthOffset = 0f;
-    private float minX = -2.75f;
-    private float maxX = 2.75f;
+    [Header("Ekran Sarma (Screen Wrap) Ayarları")]
+    [Tooltip("Karakterin ekran kenarından tamamen çıkıp diğer taraftan belireceği eşik payı")]
+    public float wrapOffset = 0.45f;
+    private float wrapThreshold = 3.0f;
     private float lastAspect = 0f;
 
     // Mobil girdiler için değişkenler
@@ -64,17 +68,13 @@ public class PlayerController : MonoBehaviour
 
         audioSource = GetComponent<AudioSource>();
 
-        // Kayıtlı kontrol modunu yükle (Varsayılan: 0 - Butonlar)
+        // Kayıtlı kontrol modunu yükle
         controlMode = PlayerPrefs.GetInt("ControlMode", 0);
         ApplyControlModeUI();
 
         CalculateScreenBounds();
     }
 
-    /// <summary>
-    /// Kontrol moduna göre Sol ve Sağ butonları gizler/açar.
-    /// Jiroskop modunda Sol/Sağ gizlenir; Zıplama butonu ekranda kalır!
-    /// </summary>
     public void ApplyControlModeUI()
     {
         if (leftButtonObj == null) leftButtonObj = GameObject.Find("Btn_Sol");
@@ -98,14 +98,12 @@ public class PlayerController : MonoBehaviour
         if (mainCam != null)
         {
             float camHalfWidth = mainCam.orthographicSize * mainCam.aspect;
-            minX = -camHalfWidth + playerWidthOffset;
-            maxX = camHalfWidth - playerWidthOffset;
+            wrapThreshold = camHalfWidth + wrapOffset;
             lastAspect = mainCam.aspect;
         }
         else
         {
-            minX = -2.75f;
-            maxX = 2.75f;
+            wrapThreshold = 3.0f;
         }
     }
 
@@ -120,9 +118,8 @@ public class PlayerController : MonoBehaviour
 
         // Oyun hızlandıkça dikeyde ve yatayda çevikliği artıran dinamik katsayı
         float speedRatio = (GameManager.globalPlatformSpeed > 0f) ? (GameManager.globalPlatformSpeed / 1.7f) : 1f;
-        speedRatio = Mathf.Clamp(speedRatio, 1f, 1.41f); // 2.2'den 4.0'a oran: ~1.0 ile 1.82 arası
+        speedRatio = Mathf.Clamp(speedRatio, 1f, 1.41f);
 
-        // Dikey Çeviklik: Yerçekimi oyun hızıyla güçlenir; böylece karakter havada asılı kalmaz, platformlara seri ve tok iner!
         rb.gravityScale = baseGravityScale * speedRatio;
 
         // 1. HAREKET (Tuşlar, Klavye veya Jiroskop Eğim)
@@ -131,10 +128,8 @@ public class PlayerController : MonoBehaviour
         if (controlMode == 1) // Jiroskop Modu
         {
             float tilt = Input.acceleration.x * tiltSensitivity;
-            // Küçük el titremelerini filtrelemek için ölü bölge (deadzone)
             if (Mathf.Abs(tilt) < 0.05f) tilt = 0f;
 
-            // Editörde ve PC testinde klavye desteğini koru
             float keyboardInput = Input.GetAxisRaw("Horizontal");
             moveInput = Mathf.Abs(keyboardInput) > 0.01f ? keyboardInput : Mathf.Clamp(tilt, -1f, 1f);
         }
@@ -144,7 +139,6 @@ public class PlayerController : MonoBehaviour
             moveInput = Mathf.Abs(mobileMoveInput) > 0.01f ? mobileMoveInput : keyboardInput;
         }
 
-        // Hızlı akan platformlara yetişebilmek için yatay hız da hafifçe çevikleşir
         float currentMoveSpeed = moveSpeed * Mathf.Sqrt(speedRatio);
         rb.linearVelocity = new Vector2(moveInput * currentMoveSpeed, rb.linearVelocity.y);
 
@@ -158,15 +152,23 @@ public class PlayerController : MonoBehaviour
             transform.localScale = new Vector3(-Mathf.Abs(transform.localScale.x), transform.localScale.y, 1);
         }
 
-        // 3. EKRAN SINIRLAMA
-        float sinirliX = Mathf.Clamp(transform.position.x, minX, maxX);
-        transform.position = new Vector2(sinirliX, transform.position.y);
+        // 3. EKRAN SARMA (SCREEN WRAP - SOLDAN GİR SAĞDAN ÇIK / SAĞDAN GİR SOLDAN ÇIK)
+        if (transform.position.x > wrapThreshold)
+        {
+            transform.position = new Vector3(-wrapThreshold + 0.1f, transform.position.y, transform.position.z);
+        }
+        else if (transform.position.x < -wrapThreshold)
+        {
+            transform.position = new Vector3(wrapThreshold - 0.1f, transform.position.y, transform.position.z);
+        }
 
-        // 4. ZEMİN KONTROLÜ & COYOTE TIME
+        // 4. ZEMİN KONTROLÜ & TEK ZIPLAMA GÜVENCESİ
         yerdeMi = Physics2D.OverlapCircle(ayakNoktasi.position, ayakCapi, zeminKatmani);
 
-        if (yerdeMi)
+        // Karakter yere inip durduğunda veya aşağı düşerken zemine bastığında zıplama hakkı yenilenir
+        if (yerdeMi && rb.linearVelocity.y <= 0.1f)
         {
+            canJump = true;
             coyoteTimeCounter = coyoteTime;
         }
         else
@@ -187,17 +189,21 @@ public class PlayerController : MonoBehaviour
             jumpBufferCounter -= Time.deltaTime;
         }
 
-        // Zıplama koşulu: Hem buffer geçerli, hem de coyote time içinde
-        if (jumpBufferCounter > 0f && coyoteTimeCounter > 0f)
+        // Kesin Zıplama Koşulu:
+        // - Zıplama tuşuna basılmış olmalı (buffer > 0)
+        // - Karakter zeminde veya coyote time içinde olmalı
+        // - canJump aktif olmalı (havada zıplamayı kilitler)
+        // - Karakter halihazırda yukarı doğru fırlıyor olmamalı (üst üste zıplamayı kesin olarak engeller)
+        if (jumpBufferCounter > 0f && coyoteTimeCounter > 0f && canJump && rb.linearVelocity.y <= 0.15f)
         {
-            rb.linearVelocity = new Vector2(rb.linearVelocity.x, 0);
-
-            // Zıplama gücü artan yerçekimiyle dengelenir; zıplama yüksekliği sabit kalırken iniş süresi çok daha çevik ve seridir!
-            float currentJumpForce = jumpForce * Mathf.Sqrt(speedRatio);
-            rb.AddForce(Vector2.up * currentJumpForce, ForceMode2D.Impulse);
-
+            canJump = false; // Zıplama hakkını tüket, yere basana kadar tekrar zıplayamaz!
             jumpBufferCounter = 0f;
             coyoteTimeCounter = 0f;
+
+            rb.linearVelocity = new Vector2(rb.linearVelocity.x, 0);
+
+            float currentJumpForce = jumpForce * Mathf.Sqrt(speedRatio);
+            rb.AddForce(Vector2.up * currentJumpForce, ForceMode2D.Impulse);
 
             if (audioSource != null && jumpSound != null)
             {
@@ -206,17 +212,11 @@ public class PlayerController : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// Mobil dokunmatik butonlar (Sol/Sağ) tarafından çağrılır.
-    /// </summary>
     public void SetMobileMoveInput(float direction)
     {
         mobileMoveInput = direction;
     }
 
-    /// <summary>
-    /// Mobil dokunmatik zıpla butonu tarafından çağrılır.
-    /// </summary>
     public void TriggerMobileJump()
     {
         mobileJumpRequested = true;
@@ -238,11 +238,23 @@ public class PlayerController : MonoBehaviour
 
     void OnCollisionEnter2D(Collision2D collision)
     {
-        if (collision.gameObject.CompareTag("Platform")) transform.SetParent(collision.transform);
+        if (collision.gameObject.CompareTag("Platform"))
+        {
+            transform.SetParent(collision.transform);
+
+            // Platforma temas edildiğinde zıplama hakkını tazelemeye izin ver
+            if (rb.linearVelocity.y <= 0.1f)
+            {
+                canJump = true;
+            }
+        }
     }
 
     void OnCollisionExit2D(Collision2D collision)
     {
-        if (collision.gameObject.CompareTag("Platform")) transform.SetParent(null);
+        if (collision.gameObject.CompareTag("Platform"))
+        {
+            transform.SetParent(null);
+        }
     }
 }

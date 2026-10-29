@@ -118,10 +118,10 @@ TextureImporter:
       name: btn_left_0
       rect:
         serializedVersion: 2
-        x: 7
-        y: 6
-        width: 243
-        height: 243
+        x: 0
+        y: 0
+        width: 256
+        height: 256
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
