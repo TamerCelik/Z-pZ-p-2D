@@ -587,9 +587,6 @@ MonoBehaviour:
   ayarlarPaneli: {fileID: 583941465}
   sesSlider: {fileID: 277748605}
   kontrolButonText: {fileID: 1685850171}
-  kontrolButtonImage: {fileID: 1422940504}
-  tusSprite: {fileID: 8100100100100100105, guid: c5a01b2c3d4e5f60718293a4b5c6d7e8, type: 3}
-  jiroskopSprite: {fileID: 8100100100100100107, guid: c7a01b2c3d4e5f60718293a4b5c6d7e8, type: 3}
 --- !u!1 &277748604
 GameObject:
   m_ObjectHideFlags: 0
@@ -2245,7 +2242,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!224 &1685850170
 RectTransform:
   m_ObjectHideFlags: 0
@@ -2590,7 +2587,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!224 &1882807178
 RectTransform:
   m_ObjectHideFlags: 0
