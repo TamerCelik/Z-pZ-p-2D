@@ -3306,6 +3306,9 @@ MonoBehaviour:
   ayarlarSubPanel: {fileID: 2025000001}
   sesSlider: {fileID: 2026000005}
   kontrolButonText: {fileID: 2027000009}
+  kontrolButtonImage: {fileID: 2027000004}
+  tusSprite: {fileID: 8100100100100100105, guid: c5a01b2c3d4e5f60718293a4b5c6d7e8, type: 3}
+  jiroskopSprite: {fileID: 8100100100100100107, guid: c7a01b2c3d4e5f60718293a4b5c6d7e8, type: 3}
   health: 3
   respawnPoint: {fileID: 1485200178}
   player: {fileID: 727940938}
@@ -5503,7 +5506,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!224 &2027000007
 RectTransform:
   m_ObjectHideFlags: 0
@@ -5724,7 +5727,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!224 &2028000007
 RectTransform:
   m_ObjectHideFlags: 0
