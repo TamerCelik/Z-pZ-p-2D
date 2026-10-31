@@ -166,7 +166,7 @@ public class GameManager : MonoBehaviour
     {
         if (kontrolButonText != null)
         {
-            kontrolButonText.text = (mode == 1) ? "JIROSKOP" : "TUŞ";
+            kontrolButonText.text = (mode == 1) ? "JIROSKOP" : "TUS";
         }
     }
     #endregion
