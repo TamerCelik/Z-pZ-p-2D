@@ -162,6 +162,7 @@ public class GameManager : MonoBehaviour
         PlayerPrefs.Save();
     }
 
+
     private void GuncelleKontrolText(int mode)
     {
         if (kontrolButonText != null)
