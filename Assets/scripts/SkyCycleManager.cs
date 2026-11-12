@@ -6,8 +6,8 @@ using UnityEngine.UI;
 using TMPro;
 
 /// <summary>
-/// Skor yukseldikce gokyuzunu gunduzden gun batimina, geceye, uzaya ve tekrar safaga
-/// surekli bir dongu halinde yumusakca donusturen paralel katmanli atmosfer yoneticisi.
+/// Skor yukseldikce gokyuzunu gunduzden gun batimina, geceye, uzaya ve 1700+ sonrasinda
+/// yavas ilerleyen derin uzay galaksilerine yumusakca donusturen atmosfer yoneticisi.
 /// </summary>
 public class SkyCycleManager : MonoBehaviour
 {
@@ -23,6 +23,7 @@ public class SkyCycleManager : MonoBehaviour
         public float starVisibility;
         public float moonVisibility;
         public float spaceVisibility;
+        public float galaxyVisibility;
         public float lightIntensity;
         public Color lightColor;
     }
@@ -35,6 +36,7 @@ public class SkyCycleManager : MonoBehaviour
         public Color baseTint;
         public float parallaxFactor;
         public float horizontalSpeed;
+        public float rotationSpeed;
         public float twinkleSpeed;
         public float twinklePhase;
         public float maxAlpha;
@@ -50,8 +52,11 @@ public class SkyCycleManager : MonoBehaviour
         public bool active;
     }
 
-    [Header("Dongu Ayarlari")]
-    [Tooltip("Bir tam gokyuzu dongusunun (Gunduz -> Gun Batimi -> Gece -> Uzay -> Safak -> Gunduz) uzunlugu")]
+    [Header("Ilerleme Ayarlari")]
+    [Tooltip("Kapali oldugunda 1700+ derin uzay ve galaksilerde kalir; aciksa gunduze geri doner")]
+    public bool useContinuousLoop = false;
+
+    [Tooltip("Olcekleme referansi (2000 = skor 1:1 kullanilir, sadece surekli dongu acikken veya olceklemede)")]
     public float cycleLength = 2000f;
 
     [Tooltip("Ilk oyunda orman videosunun yumusakca gokyuzune karismaya baslayacagi skor")]
@@ -65,27 +70,32 @@ public class SkyCycleManager : MonoBehaviour
     public VideoPlayer backgroundVideo;
     public Light2D globalLight2D;
 
-    [Header("Gokyuzu Sprite'lari (Assets/UI/Sky)")]
+    [Header("Gokyuzu & Galaksi Sprite'lari (Assets/Resources/Sky)")]
     public Sprite cloudLargeSprite;
     public Sprite cloudSmallSprite;
+    public Sprite cloudWispySprite;
     public Sprite moonSprite;
     public Sprite starSparkleSprite;
     public Sprite starDotSprite;
     public Sprite planetSprite;
     public Sprite shootingStarSprite;
+    public Sprite galaxySpiralSprite;
+    public Sprite galaxyNebulaSprite;
+    public Sprite galaxyRingSprite;
 
     [Header("Katman Yogunlugu")]
     [Range(2, 14)] public int cloudCount = 7;
     [Range(10, 60)] public int starCount = 34;
+    [Range(2, 8)] public int galaxyCount = 5;
     public float minShootingStarInterval = 3.5f;
     public float maxShootingStarInterval = 6.5f;
 
     [Header("Bolge Gecis Bildirimi")]
-    public bool showZoneBanner = true;
+    public bool showZoneBanner = false;
 
     [Header("Test & Onizleme (Play Modunda Slider ile Test Edebilirsiniz)")]
     public bool usePreviewScore = false;
-    [Range(0f, 2000f)]
+    [Range(0f, 2500f)]
     public float previewScore = 0f;
 
     private SkyKeyframe[] keyframes;
@@ -109,6 +119,8 @@ public class SkyCycleManager : MonoBehaviour
     // Parallax elements
     private readonly List<DriftingElement> clouds = new List<DriftingElement>();
     private readonly List<DriftingElement> stars = new List<DriftingElement>();
+    private readonly List<DriftingElement> galaxies = new List<DriftingElement>();
+
     private SpriteRenderer moonRenderer;
     private Transform moonTransform;
     private Vector3 moonBasePos;
@@ -124,25 +136,36 @@ public class SkyCycleManager : MonoBehaviour
     private float camHalfHeight = 5f;
     private float camHalfWidth = 3f;
 
-    // Zone banner UI
+    // Optional zone banner UI (disabled by default)
     private int lastZoneIndex = 0;
     private TextMeshProUGUI bannerText;
     private RectTransform bannerRect;
     private float bannerTimer = -1f;
     private const float BannerDuration = 2.4f;
 
+    private float currentCloudAlpha;
+    private Color currentCloudColor;
+    private float currentStarVisibility;
+    private float currentSpaceVisibility;
+    private float currentGalaxyVisibility;
+
     void Start()
     {
         ResolveReferences();
+        ResolveSprites();
         InitializeKeyframes();
         CreateUnlitMaterial();
         CreateGradientBackdrop();
         CreateClouds();
         CreateStars();
+        CreateGalaxies();
         CreateMoon();
         CreatePlanet();
         CreateShootingStar();
-        CreateBannerUI();
+        if (showZoneBanner)
+        {
+            CreateBannerUI();
+        }
 
         nextShootingStarTimer = Random.Range(minShootingStarInterval, maxShootingStarInterval);
         ApplyAtmosphere(GetEffectiveScore(), immediate: true);
@@ -158,9 +181,13 @@ public class SkyCycleManager : MonoBehaviour
 
         UpdateClouds(dt);
         UpdateStars(dt);
+        UpdateGalaxies(dt);
         UpdateCelestialDrift(dt);
         UpdateShootingStar(dt);
-        UpdateBanner(dt);
+        if (showZoneBanner)
+        {
+            UpdateBanner(dt);
+        }
     }
 
     void OnDestroy()
@@ -201,6 +228,21 @@ public class SkyCycleManager : MonoBehaviour
         }
     }
 
+    private void ResolveSprites()
+    {
+        if (cloudLargeSprite == null) cloudLargeSprite = Resources.Load<Sprite>("Sky/sky_cloud_large");
+        if (cloudSmallSprite == null) cloudSmallSprite = Resources.Load<Sprite>("Sky/sky_cloud_small");
+        if (cloudWispySprite == null) cloudWispySprite = Resources.Load<Sprite>("Sky/sky_cloud_wispy");
+        if (moonSprite == null) moonSprite = Resources.Load<Sprite>("Sky/sky_moon");
+        if (starSparkleSprite == null) starSparkleSprite = Resources.Load<Sprite>("Sky/sky_star_sparkle");
+        if (starDotSprite == null) starDotSprite = Resources.Load<Sprite>("Sky/sky_star_dot");
+        if (planetSprite == null) planetSprite = Resources.Load<Sprite>("Sky/sky_planet");
+        if (shootingStarSprite == null) shootingStarSprite = Resources.Load<Sprite>("Sky/sky_shooting_star");
+        if (galaxySpiralSprite == null) galaxySpiralSprite = Resources.Load<Sprite>("Sky/sky_galaxy_spiral");
+        if (galaxyNebulaSprite == null) galaxyNebulaSprite = Resources.Load<Sprite>("Sky/sky_galaxy_nebula");
+        if (galaxyRingSprite == null) galaxyRingSprite = Resources.Load<Sprite>("Sky/sky_galaxy_ring");
+    }
+
     private void CreateUnlitMaterial()
     {
         Shader shader = Shader.Find("Sprites/Default");
@@ -221,137 +263,197 @@ public class SkyCycleManager : MonoBehaviour
 
     private void InitializeKeyframes()
     {
-        // Not: Ilk ve son keyframe birebir ayni olmalidir ki 2000 skorda dongu kesintisiz devam etsin.
-        keyframes = new SkyKeyframe[]
+        if (useContinuousLoop)
         {
-            new SkyKeyframe // 0: Gunduz
+            keyframes = new SkyKeyframe[]
             {
-                score = 0f,
-                topColor = Hex("#3D9BE9"),
-                midColor = Hex("#7BC8F6"),
-                bottomColor = Hex("#D6F3FF"),
-                cloudColor = Color.white,
-                cloudAlpha = 0.90f,
-                starVisibility = 0f,
-                moonVisibility = 0f,
-                spaceVisibility = 0f,
-                lightIntensity = 1.00f,
-                lightColor = Color.white
-            },
-            new SkyKeyframe // 300: Altin Saat / Gun Batimi Baslangici
+                CreateDayKeyframe(0f),
+                CreateSunsetStartKeyframe(300f),
+                CreateSunsetPeakKeyframe(520f),
+                CreateDuskKeyframe(700f),
+                CreateNightKeyframe(960f),
+                CreateSpaceKeyframe(1200f),
+                CreateNebulaKeyframe(1500f),
+                CreateDawnKeyframe(1760f),
+                CreateDayKeyframe(2000f)
+            };
+        }
+        else
+        {
+            keyframes = new SkyKeyframe[]
             {
-                score = 300f,
-                topColor = Hex("#5F84D6"),
-                midColor = Hex("#F6A6B2"),
-                bottomColor = Hex("#FFE09E"),
-                cloudColor = Hex("#FFF2E8"),
-                cloudAlpha = 0.90f,
-                starVisibility = 0f,
-                moonVisibility = 0f,
-                spaceVisibility = 0f,
-                lightIntensity = 0.97f,
-                lightColor = Hex("#FFF7EE")
-            },
-            new SkyKeyframe // 520: Gun Batimi Zirvesi
-            {
-                score = 520f,
-                topColor = Hex("#5B3E8C"),
-                midColor = Hex("#E06D94"),
-                bottomColor = Hex("#FF9E64"),
-                cloudColor = Hex("#FFB7A8"),
-                cloudAlpha = 0.78f,
-                starVisibility = 0.30f,
-                moonVisibility = 0.20f,
-                spaceVisibility = 0f,
-                lightIntensity = 0.91f,
-                lightColor = Hex("#FFE1D6")
-            },
-            new SkyKeyframe // 700: Alacakaranlik / Geceye Giris
-            {
-                score = 700f,
-                topColor = Hex("#131842"),
-                midColor = Hex("#2B2A63"),
-                bottomColor = Hex("#69497D"),
-                cloudColor = Hex("#9F8CB8"),
-                cloudAlpha = 0.18f,
-                starVisibility = 0.85f,
-                moonVisibility = 0.90f,
-                spaceVisibility = 0f,
-                lightIntensity = 0.84f,
-                lightColor = Hex("#DCD8FF")
-            },
-            new SkyKeyframe // 960: Derin Gece
-            {
-                score = 960f,
-                topColor = Hex("#0B0F2E"),
-                midColor = Hex("#162052"),
-                bottomColor = Hex("#28336B"),
-                cloudColor = Color.white,
-                cloudAlpha = 0f,
-                starVisibility = 1.00f,
-                moonVisibility = 1.00f,
-                spaceVisibility = 0.15f,
-                lightIntensity = 0.82f,
-                lightColor = Hex("#D8DDFF")
-            },
-            new SkyKeyframe // 1200: Uzay & Galaksi Baslangici
-            {
-                score = 1200f,
-                topColor = Hex("#050410"),
-                midColor = Hex("#160D38"),
-                bottomColor = Hex("#2E155A"),
-                cloudColor = Color.white,
-                cloudAlpha = 0f,
-                starVisibility = 1.00f,
-                moonVisibility = 0.35f,
-                spaceVisibility = 1.00f,
-                lightIntensity = 0.85f,
-                lightColor = Hex("#E5DBFF")
-            },
-            new SkyKeyframe // 1500: Kozmik Nebula
-            {
-                score = 1500f,
-                topColor = Hex("#070614"),
-                midColor = Hex("#1F1047"),
-                bottomColor = Hex("#471E6B"),
-                cloudColor = Color.white,
-                cloudAlpha = 0f,
-                starVisibility = 1.00f,
-                moonVisibility = 0f,
-                spaceVisibility = 1.00f,
-                lightIntensity = 0.85f,
-                lightColor = Hex("#EBDDFF")
-            },
-            new SkyKeyframe // 1760: Safak / Gun Dogumu
-            {
-                score = 1760f,
-                topColor = Hex("#4D67BF"),
-                midColor = Hex("#C88EC9"),
-                bottomColor = Hex("#FFD1B8"),
-                cloudColor = Hex("#FFEBE3"),
-                cloudAlpha = 0.55f,
-                starVisibility = 0.15f,
-                moonVisibility = 0f,
-                spaceVisibility = 0f,
-                lightIntensity = 0.94f,
-                lightColor = Hex("#FFF2EC")
-            },
-            new SkyKeyframe // 2000: Gunduz (Dongu Tamamlandi)
-            {
-                score = 2000f,
-                topColor = Hex("#3D9BE9"),
-                midColor = Hex("#7BC8F6"),
-                bottomColor = Hex("#D6F3FF"),
-                cloudColor = Color.white,
-                cloudAlpha = 0.90f,
-                starVisibility = 0f,
-                moonVisibility = 0f,
-                spaceVisibility = 0f,
-                lightIntensity = 1.00f,
-                lightColor = Color.white
-            }
-        };
+                CreateDayKeyframe(0f),
+                CreateSunsetStartKeyframe(300f),
+                CreateSunsetPeakKeyframe(520f),
+                CreateDuskKeyframe(700f),
+                CreateNightKeyframe(960f),
+                CreateSpaceKeyframe(1200f),
+                CreateNebulaKeyframe(1500f),
+                CreateGalaxyEntranceKeyframe(1700f),
+                CreateDeepGalaxiesKeyframe(2050f)
+            };
+        }
     }
+
+    private static SkyKeyframe CreateDayKeyframe(float score) => new SkyKeyframe
+    {
+        score = score,
+        topColor = Hex("#3D9BE9"),
+        midColor = Hex("#7BC8F6"),
+        bottomColor = Hex("#D6F3FF"),
+        cloudColor = Color.white,
+        cloudAlpha = 0.90f,
+        starVisibility = 0f,
+        moonVisibility = 0f,
+        spaceVisibility = 0f,
+        galaxyVisibility = 0f,
+        lightIntensity = 1.00f,
+        lightColor = Color.white
+    };
+
+    private static SkyKeyframe CreateSunsetStartKeyframe(float score) => new SkyKeyframe
+    {
+        score = score,
+        topColor = Hex("#5F84D6"),
+        midColor = Hex("#F6A6B2"),
+        bottomColor = Hex("#FFE09E"),
+        cloudColor = Hex("#FFF2E8"),
+        cloudAlpha = 0.90f,
+        starVisibility = 0f,
+        moonVisibility = 0f,
+        spaceVisibility = 0f,
+        galaxyVisibility = 0f,
+        lightIntensity = 0.97f,
+        lightColor = Hex("#FFF7EE")
+    };
+
+    private static SkyKeyframe CreateSunsetPeakKeyframe(float score) => new SkyKeyframe
+    {
+        score = score,
+        topColor = Hex("#5B3E8C"),
+        midColor = Hex("#E06D94"),
+        bottomColor = Hex("#FF9E64"),
+        cloudColor = Hex("#FFB7A8"),
+        cloudAlpha = 0.78f,
+        starVisibility = 0.30f,
+        moonVisibility = 0.20f,
+        spaceVisibility = 0f,
+        galaxyVisibility = 0f,
+        lightIntensity = 0.91f,
+        lightColor = Hex("#FFE1D6")
+    };
+
+    private static SkyKeyframe CreateDuskKeyframe(float score) => new SkyKeyframe
+    {
+        score = score,
+        topColor = Hex("#131842"),
+        midColor = Hex("#2B2A63"),
+        bottomColor = Hex("#69497D"),
+        cloudColor = Hex("#9F8CB8"),
+        cloudAlpha = 0.18f,
+        starVisibility = 0.85f,
+        moonVisibility = 0.90f,
+        spaceVisibility = 0f,
+        galaxyVisibility = 0f,
+        lightIntensity = 0.84f,
+        lightColor = Hex("#DCD8FF")
+    };
+
+    private static SkyKeyframe CreateNightKeyframe(float score) => new SkyKeyframe
+    {
+        score = score,
+        topColor = Hex("#0B0F2E"),
+        midColor = Hex("#162052"),
+        bottomColor = Hex("#28336B"),
+        cloudColor = Color.white,
+        cloudAlpha = 0f,
+        starVisibility = 1.00f,
+        moonVisibility = 1.00f,
+        spaceVisibility = 0.15f,
+        galaxyVisibility = 0f,
+        lightIntensity = 0.82f,
+        lightColor = Hex("#D8DDFF")
+    };
+
+    private static SkyKeyframe CreateSpaceKeyframe(float score) => new SkyKeyframe
+    {
+        score = score,
+        topColor = Hex("#050410"),
+        midColor = Hex("#160D38"),
+        bottomColor = Hex("#2E155A"),
+        cloudColor = Color.white,
+        cloudAlpha = 0f,
+        starVisibility = 1.00f,
+        moonVisibility = 0.35f,
+        spaceVisibility = 1.00f,
+        galaxyVisibility = 0f,
+        lightIntensity = 0.85f,
+        lightColor = Hex("#E5DBFF")
+    };
+
+    private static SkyKeyframe CreateNebulaKeyframe(float score) => new SkyKeyframe
+    {
+        score = score,
+        topColor = Hex("#070614"),
+        midColor = Hex("#1F1047"),
+        bottomColor = Hex("#471E6B"),
+        cloudColor = Color.white,
+        cloudAlpha = 0f,
+        starVisibility = 1.00f,
+        moonVisibility = 0f,
+        spaceVisibility = 1.00f,
+        galaxyVisibility = 0.15f,
+        lightIntensity = 0.85f,
+        lightColor = Hex("#EBDDFF")
+    };
+
+    private static SkyKeyframe CreateGalaxyEntranceKeyframe(float score) => new SkyKeyframe
+    {
+        score = score,
+        topColor = Hex("#04030E"),
+        midColor = Hex("#140B36"),
+        bottomColor = Hex("#2D1454"),
+        cloudColor = Color.white,
+        cloudAlpha = 0f,
+        starVisibility = 1.00f,
+        moonVisibility = 0f,
+        spaceVisibility = 0.90f,
+        galaxyVisibility = 0.85f,
+        lightIntensity = 0.86f,
+        lightColor = Hex("#EFE4FF")
+    };
+
+    private static SkyKeyframe CreateDeepGalaxiesKeyframe(float score) => new SkyKeyframe
+    {
+        score = score,
+        topColor = Hex("#020208"),
+        midColor = Hex("#0D0726"),
+        bottomColor = Hex("#1F0D3D"),
+        cloudColor = Color.white,
+        cloudAlpha = 0f,
+        starVisibility = 1.00f,
+        moonVisibility = 0f,
+        spaceVisibility = 0.80f,
+        galaxyVisibility = 1.00f,
+        lightIntensity = 0.87f,
+        lightColor = Hex("#F2E9FF")
+    };
+
+    private static SkyKeyframe CreateDawnKeyframe(float score) => new SkyKeyframe
+    {
+        score = score,
+        topColor = Hex("#4D67BF"),
+        midColor = Hex("#C88EC9"),
+        bottomColor = Hex("#FFD1B8"),
+        cloudColor = Hex("#FFEBE3"),
+        cloudAlpha = 0.55f,
+        starVisibility = 0.15f,
+        moonVisibility = 0f,
+        spaceVisibility = 0f,
+        galaxyVisibility = 0f,
+        lightIntensity = 0.94f,
+        lightColor = Hex("#FFF2EC")
+    };
 
     private void CreateGradientBackdrop()
     {
@@ -384,10 +486,13 @@ public class SkyCycleManager : MonoBehaviour
         Sprite fallbackCloud = CreateFallbackCloudSprite();
         Sprite large = cloudLargeSprite != null ? cloudLargeSprite : fallbackCloud;
         Sprite small = cloudSmallSprite != null ? cloudSmallSprite : fallbackCloud;
+        Sprite wispy = cloudWispySprite != null ? cloudWispySprite : small;
 
         for (int i = 0; i < cloudCount; i++)
         {
-            bool isSmall = (i % 2 == 1);
+            int variant = i % 3;
+            Sprite chosenSprite = variant == 0 ? large : (variant == 1 ? small : wispy);
+
             GameObject obj = new GameObject($"Cloud_{i}");
             obj.transform.SetParent(folder);
 
@@ -395,24 +500,31 @@ public class SkyCycleManager : MonoBehaviour
             float y = Mathf.Lerp(-camHalfHeight, camHalfHeight + 0.5f, (float)i / Mathf.Max(1, cloudCount));
             obj.transform.position = new Vector3(x, y, 4f);
 
-            float scale = isSmall ? Random.Range(0.32f, 0.48f) : Random.Range(0.38f, 0.55f);
+            float scale = variant == 0
+                ? Random.Range(0.58f, 0.82f)
+                : (variant == 1 ? Random.Range(0.52f, 0.76f) : Random.Range(0.62f, 0.90f));
             obj.transform.localScale = new Vector3(scale, scale, 1f);
 
             SpriteRenderer sr = obj.AddComponent<SpriteRenderer>();
-            sr.sprite = isSmall ? small : large;
-            sr.sortingOrder = isSmall ? -75 : -70;
+            sr.sprite = chosenSprite;
+            sr.flipX = (i % 2 == 1);
+            sr.sortingOrder = variant == 0 ? -70 : (variant == 1 ? -74 : -77);
             if (unlitMaterial != null) sr.sharedMaterial = unlitMaterial;
 
             float dir = (i % 2 == 0) ? 1f : -1f;
+            float maxAlpha = variant == 0
+                ? Random.Range(0.76f, 0.94f)
+                : (variant == 1 ? Random.Range(0.60f, 0.84f) : Random.Range(0.45f, 0.68f));
+
             clouds.Add(new DriftingElement
             {
                 transform = obj.transform,
                 renderer = sr,
                 baseScale = obj.transform.localScale,
                 baseTint = Color.white,
-                parallaxFactor = isSmall ? Random.Range(0.10f, 0.16f) : Random.Range(0.18f, 0.26f),
-                horizontalSpeed = dir * Random.Range(0.06f, 0.18f),
-                maxAlpha = isSmall ? Random.Range(0.55f, 0.80f) : Random.Range(0.75f, 0.95f)
+                parallaxFactor = variant == 0 ? Random.Range(0.16f, 0.24f) : Random.Range(0.09f, 0.16f),
+                horizontalSpeed = dir * Random.Range(0.06f, 0.16f),
+                maxAlpha = maxAlpha
             });
         }
     }
@@ -430,9 +542,9 @@ public class SkyCycleManager : MonoBehaviour
         Color[] starPalette =
         {
             Color.white,
-            Hex("#FFF7D6"), // Yumusak krem
-            Hex("#D9F6FF"), // Buz mavisi
-            Hex("#FFE0F2")  // Pastel pembe
+            Hex("#FFF7D6"),
+            Hex("#D9F6FF"),
+            Hex("#FFE0F2")
         };
 
         for (int i = 0; i < starCount; i++)
@@ -445,12 +557,12 @@ public class SkyCycleManager : MonoBehaviour
             float y = Random.Range(-camHalfHeight + 0.3f, camHalfHeight - 0.2f);
             obj.transform.position = new Vector3(x, y, 4.5f);
 
-            float scale = isSparkle ? Random.Range(0.22f, 0.36f) : Random.Range(0.25f, 0.45f);
+            float scale = isSparkle ? Random.Range(0.44f, 0.70f) : Random.Range(0.45f, 0.78f);
             obj.transform.localScale = new Vector3(scale, scale, 1f);
 
             SpriteRenderer sr = obj.AddComponent<SpriteRenderer>();
             sr.sprite = isSparkle ? sparkle : dot;
-            sr.sortingOrder = -90;
+            sr.sortingOrder = -92;
             if (unlitMaterial != null) sr.sharedMaterial = unlitMaterial;
 
             stars.Add(new DriftingElement
@@ -459,10 +571,66 @@ public class SkyCycleManager : MonoBehaviour
                 renderer = sr,
                 baseScale = obj.transform.localScale,
                 baseTint = starPalette[i % starPalette.Length],
-                parallaxFactor = Random.Range(0.03f, 0.08f),
+                parallaxFactor = Random.Range(0.025f, 0.065f),
                 twinkleSpeed = Random.Range(1.6f, 4.2f),
                 twinklePhase = Random.Range(0f, Mathf.PI * 2f),
                 maxAlpha = isSparkle ? Random.Range(0.85f, 1.0f) : Random.Range(0.50f, 0.92f)
+            });
+        }
+    }
+
+    private void CreateGalaxies()
+    {
+        Transform folder = new GameObject("SkyGalaxies").transform;
+        folder.SetParent(transform);
+
+        Sprite fallback = CreateFallbackCloudSprite();
+        Sprite[] galaxySprites =
+        {
+            galaxySpiralSprite != null ? galaxySpiralSprite : fallback,
+            galaxyNebulaSprite != null ? galaxyNebulaSprite : fallback,
+            galaxyRingSprite != null ? galaxyRingSprite : fallback
+        };
+
+        Color[] galaxyTints =
+        {
+            Color.white,
+            Hex("#F4DCFF"),
+            Hex("#DCF4FF")
+        };
+
+        for (int i = 0; i < galaxyCount; i++)
+        {
+            int variant = i % galaxySprites.Length;
+            GameObject obj = new GameObject($"Galaxy_{i}");
+            obj.transform.SetParent(folder);
+
+            float x = Random.Range(-camHalfWidth * 0.78f, camHalfWidth * 0.78f);
+            float y = Mathf.Lerp(-camHalfHeight * 0.7f, camHalfHeight + 1.2f, (float)i / Mathf.Max(1, galaxyCount));
+            obj.transform.position = new Vector3(x, y, 4.35f);
+
+            float scale = variant == 1 ? Random.Range(0.70f, 0.96f) : Random.Range(0.58f, 0.84f);
+            obj.transform.localScale = new Vector3(scale, scale, 1f);
+            obj.transform.rotation = Quaternion.Euler(0f, 0f, Random.Range(-22f, 22f));
+
+            SpriteRenderer sr = obj.AddComponent<SpriteRenderer>();
+            sr.sprite = galaxySprites[variant];
+            sr.sortingOrder = -88;
+            if (unlitMaterial != null) sr.sharedMaterial = unlitMaterial;
+
+            float dir = (i % 2 == 0) ? 1f : -1f;
+            float rotSpeed = (variant == 1) ? dir * 0.8f : dir * Random.Range(1.8f, 3.6f);
+
+            galaxies.Add(new DriftingElement
+            {
+                transform = obj.transform,
+                renderer = sr,
+                baseScale = obj.transform.localScale,
+                baseTint = galaxyTints[i % galaxyTints.Length],
+                parallaxFactor = Random.Range(0.012f, 0.024f),
+                horizontalSpeed = dir * Random.Range(0.012f, 0.028f),
+                rotationSpeed = rotSpeed,
+                maxAlpha = variant == 1 ? Random.Range(0.58f, 0.74f) : Random.Range(0.72f, 0.88f)
             });
         }
     }
@@ -473,7 +641,7 @@ public class SkyCycleManager : MonoBehaviour
         obj.transform.SetParent(transform);
         moonBasePos = new Vector3(camHalfWidth * 0.50f, camHalfHeight * 0.42f, 4.2f);
         obj.transform.position = moonBasePos;
-        obj.transform.localScale = new Vector3(0.50f, 0.50f, 1f);
+        obj.transform.localScale = new Vector3(0.66f, 0.66f, 1f);
 
         moonTransform = obj.transform;
         moonRenderer = obj.AddComponent<SpriteRenderer>();
@@ -488,7 +656,7 @@ public class SkyCycleManager : MonoBehaviour
         obj.transform.SetParent(transform);
         planetBasePos = new Vector3(-camHalfWidth * 0.46f, camHalfHeight * 0.34f, 4.3f);
         obj.transform.position = planetBasePos;
-        obj.transform.localScale = new Vector3(0.42f, 0.42f, 1f);
+        obj.transform.localScale = new Vector3(0.62f, 0.62f, 1f);
 
         planetTransform = obj.transform;
         planetRenderer = obj.AddComponent<SpriteRenderer>();
@@ -513,8 +681,6 @@ public class SkyCycleManager : MonoBehaviour
 
     private void CreateBannerUI()
     {
-        if (!showZoneBanner) return;
-
         Canvas canvas = Object.FindAnyObjectByType<Canvas>();
         GameManager gm = Object.FindAnyObjectByType<GameManager>();
         if (canvas == null) return;
@@ -542,16 +708,13 @@ public class SkyCycleManager : MonoBehaviour
         bannerObj.SetActive(false);
     }
 
-    private float currentCloudAlpha;
-    private Color currentCloudColor;
-    private float currentStarVisibility;
-    private float currentSpaceVisibility;
-
     private void ApplyAtmosphere(float totalScore, bool immediate)
     {
         float safeCycleLen = Mathf.Max(200f, cycleLength);
         float cycleRatio = safeCycleLen / 2000f;
-        float mappedScore = (totalScore % safeCycleLen) / cycleRatio;
+        float mappedScore = useContinuousLoop
+            ? (totalScore % safeCycleLen) / cycleRatio
+            : totalScore / cycleRatio;
 
         SkyKeyframe state = EvaluateKeyframes(mappedScore);
 
@@ -579,18 +742,17 @@ public class SkyCycleManager : MonoBehaviour
 
         if (mainCamera != null)
         {
-            // Video gorunurken orijinal kamera arka plan rengini koru, sonrasinda alt gradyana uydur
             mainCamera.backgroundColor = Color.Lerp(initialCameraColor, state.bottomColor, overlayAlpha);
         }
 
         UpdateGradientTexture(state.topColor, state.midColor, state.bottomColor, overlayAlpha, immediate);
 
-        // Ilk basta orman gorunurken bulutlarin gorunurlugunu yavasca ac
         float firstCycleReveal = (totalScore < forestFadeEndScore) ? overlayAlpha : 1f;
         currentCloudAlpha = state.cloudAlpha * firstCycleReveal;
         currentCloudColor = state.cloudColor;
         currentStarVisibility = state.starVisibility * firstCycleReveal;
         currentSpaceVisibility = state.spaceVisibility * firstCycleReveal;
+        currentGalaxyVisibility = state.galaxyVisibility * firstCycleReveal;
 
         if (moonRenderer != null)
         {
@@ -612,7 +774,10 @@ public class SkyCycleManager : MonoBehaviour
             globalLight2D.color = state.lightColor;
         }
 
-        CheckZoneBanner(totalScore, mappedScore);
+        if (showZoneBanner)
+        {
+            CheckZoneBanner(totalScore, mappedScore);
+        }
     }
 
     private SkyKeyframe EvaluateKeyframes(float mappedScore)
@@ -637,6 +802,7 @@ public class SkyCycleManager : MonoBehaviour
                     starVisibility = Mathf.Lerp(a.starVisibility, b.starVisibility, t),
                     moonVisibility = Mathf.Lerp(a.moonVisibility, b.moonVisibility, t),
                     spaceVisibility = Mathf.Lerp(a.spaceVisibility, b.spaceVisibility, t),
+                    galaxyVisibility = Mathf.Lerp(a.galaxyVisibility, b.galaxyVisibility, t),
                     lightIntensity = Mathf.Lerp(a.lightIntensity, b.lightIntensity, t),
                     lightColor = Color.Lerp(a.lightColor, b.lightColor, t)
                 };
@@ -687,8 +853,8 @@ public class SkyCycleManager : MonoBehaviour
     private void UpdateClouds(float dt)
     {
         float fallBase = Mathf.Max(0f, GameManager.globalPlatformSpeed);
-        float wrapMarginX = camHalfWidth + 2.2f;
-        float wrapMarginY = camHalfHeight + 1.4f;
+        float wrapMarginX = camHalfWidth + 2.4f;
+        float wrapMarginY = camHalfHeight + 1.6f;
 
         for (int i = 0; i < clouds.Count; i++)
         {
@@ -742,6 +908,37 @@ public class SkyCycleManager : MonoBehaviour
         }
     }
 
+    private void UpdateGalaxies(float dt)
+    {
+        float fallBase = Mathf.Max(0.4f, GameManager.globalPlatformSpeed);
+        float wrapMarginX = camHalfWidth + 2.2f;
+        float wrapMarginY = camHalfHeight + 2.4f;
+
+        for (int i = 0; i < galaxies.Count; i++)
+        {
+            DriftingElement el = galaxies[i];
+            Vector3 pos = el.transform.position;
+            pos.x += el.horizontalSpeed * dt;
+            pos.y -= fallBase * el.parallaxFactor * dt;
+
+            if (pos.x > wrapMarginX) pos.x = -wrapMarginX;
+            else if (pos.x < -wrapMarginX) pos.x = wrapMarginX;
+
+            if (pos.y < -wrapMarginY)
+            {
+                pos.y = wrapMarginY;
+                pos.x = Random.Range(-camHalfWidth * 0.78f, camHalfWidth * 0.78f);
+            }
+
+            el.transform.position = pos;
+            el.transform.Rotate(0f, 0f, el.rotationSpeed * dt);
+
+            Color c = el.baseTint;
+            c.a = currentGalaxyVisibility * el.maxAlpha;
+            el.renderer.color = c;
+        }
+    }
+
     private void UpdateCelestialDrift(float dt)
     {
         float bob = Mathf.Sin(Time.time * 0.45f) * 0.14f;
@@ -778,7 +975,6 @@ public class SkyCycleManager : MonoBehaviour
             pos += (Vector3)(shootingStar.velocity * dt);
             shootingStar.transform.position = pos;
 
-            // Baslangic ve bitiste yumusak alfa gecisi
             float alphaCurve = Mathf.Sin(progress * Mathf.PI);
             Color c = Color.white;
             c.a = alphaCurve * Mathf.Max(currentStarVisibility, currentSpaceVisibility);
@@ -806,7 +1002,7 @@ public class SkyCycleManager : MonoBehaviour
 
         shootingStar.transform.position = new Vector3(startX, startY, 4.4f);
         shootingStar.transform.rotation = Quaternion.Euler(0f, 0f, angle);
-        shootingStar.transform.localScale = new Vector3(0.55f, 0.55f, 1f);
+        shootingStar.transform.localScale = new Vector3(0.70f, 0.70f, 1f);
         shootingStar.velocity = dir;
         shootingStar.lifetime = 0.85f;
         shootingStar.age = 0f;
@@ -849,15 +1045,13 @@ public class SkyCycleManager : MonoBehaviour
         else
         {
             zoneIndex = 4;
-            label = "GUN DOGUMU";
-            tint = Hex("#FFE0D8");
+            label = useContinuousLoop ? "GUN DOGUMU" : "DERIN GALAKSI";
+            tint = Hex("#E8D4FF");
         }
 
         if (zoneIndex != lastZoneIndex)
         {
             lastZoneIndex = zoneIndex;
-
-            // Ilk baslangic aninda (0 skor) banner cikmasin, ikinci turda "GUNDUZ" cikabilir
             if (zoneIndex == 0 && totalScore < 500f) return;
 
             bannerText.text = label;
@@ -894,40 +1088,63 @@ public class SkyCycleManager : MonoBehaviour
         bannerRect.anchoredPosition = new Vector2(0f, -74f + (t * 14f));
     }
 
-    #region Fallback Sprite Generators (Inspector bos kalirsa kullanilir)
+    #region Fallback Sprite Generators (Resources bos kalirsa yumusak sefkatli sekiller uretir)
     private static Sprite CreateFallbackCloudSprite()
     {
-        Texture2D tex = new Texture2D(16, 8, TextureFormat.RGBA32, false) { filterMode = FilterMode.Point };
-        Color[] cols = new Color[16 * 8];
-        for (int y = 0; y < 8; y++)
+        const int w = 64;
+        const int h = 32;
+        Texture2D tex = new Texture2D(w, h, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear };
+        Color[] cols = new Color[w * h];
+
+        Vector2[] puffs =
         {
-            for (int x = 0; x < 16; x++)
+            new Vector2(20f, 12f), new Vector2(32f, 18f), new Vector2(44f, 12f),
+            new Vector2(26f, 14f), new Vector2(38f, 14f)
+        };
+        float[] radii = { 10f, 12f, 10f, 11f, 11f };
+
+        for (int y = 0; y < h; y++)
+        {
+            for (int x = 0; x < w; x++)
             {
-                bool fill = (y >= 1 && y <= 4 && x >= 2 && x <= 13) || (y >= 4 && y <= 6 && x >= 5 && x <= 11);
-                cols[y * 16 + x] = fill ? Color.white : Color.clear;
+                float alpha = 0f;
+                for (int p = 0; p < puffs.Length; p++)
+                {
+                    float dist = Vector2.Distance(new Vector2(x, y), puffs[p]) / radii[p];
+                    float a = Mathf.Clamp01(1f - dist * dist);
+                    alpha = Mathf.Max(alpha, a);
+                }
+                if (y < 6) alpha *= Mathf.Clamp01(y / 6f);
+                cols[y * w + x] = new Color(1f, 1f, 1f, alpha);
             }
         }
         tex.SetPixels(cols);
         tex.Apply();
-        return Sprite.Create(tex, new Rect(0, 0, 16, 8), new Vector2(0.5f, 0.5f), 8f);
+        return Sprite.Create(tex, new Rect(0, 0, w, h), new Vector2(0.5f, 0.5f), 28f);
     }
 
     private static Sprite CreateFallbackStarSprite(bool cross)
     {
-        int size = cross ? 5 : 2;
-        Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false) { filterMode = FilterMode.Point };
+        int size = cross ? 15 : 8;
+        Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear };
         Color[] cols = new Color[size * size];
+        float center = (size - 1) * 0.5f;
         for (int y = 0; y < size; y++)
         {
             for (int x = 0; x < size; x++)
             {
-                bool fill = !cross || (x == 2 || y == 2);
-                cols[y * size + x] = fill ? Color.white : Color.clear;
+                float dx = Mathf.Abs(x - center) / center;
+                float dy = Mathf.Abs(y - center) / center;
+                float dist = Mathf.Sqrt(dx * dx + dy * dy);
+                float alpha = cross
+                    ? Mathf.Clamp01(1f - dist) * (Mathf.Abs(dx) < 0.25f || Mathf.Abs(dy) < 0.25f ? 1f : 0.45f)
+                    : Mathf.Clamp01(1f - dist * dist);
+                cols[y * size + x] = new Color(1f, 1f, 1f, alpha);
             }
         }
         tex.SetPixels(cols);
         tex.Apply();
-        return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 8f);
+        return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 16f);
     }
     #endregion
 }

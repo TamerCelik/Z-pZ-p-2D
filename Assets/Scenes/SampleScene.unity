@@ -5840,23 +5840,29 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c5a91234567849ab8cde901234567890, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::SkyCycleManager
+  useContinuousLoop: 0
   cycleLength: 2000
   forestFadeStartScore: 110
   forestFadeEndScore: 260
   mainCamera: {fileID: 519420031}
   backgroundVideo: {fileID: 519420033}
   globalLight2D: {fileID: 619394801}
-  cloudLargeSprite: {fileID: 21300000, guid: 4a9e112233445566778899aabbccdd01, type: 3}
-  cloudSmallSprite: {fileID: 21300000, guid: 4a9e112233445566778899aabbccdd02, type: 3}
-  moonSprite: {fileID: 21300000, guid: 4a9e112233445566778899aabbccdd03, type: 3}
-  starSparkleSprite: {fileID: 21300000, guid: 4a9e112233445566778899aabbccdd04, type: 3}
-  starDotSprite: {fileID: 21300000, guid: 4a9e112233445566778899aabbccdd05, type: 3}
-  planetSprite: {fileID: 21300000, guid: 4a9e112233445566778899aabbccdd06, type: 3}
-  shootingStarSprite: {fileID: 21300000, guid: 4a9e112233445566778899aabbccdd07, type: 3}
+  cloudLargeSprite: {fileID: 21300000, guid: b8f20000000040008000000000000011, type: 3}
+  cloudSmallSprite: {fileID: 21300000, guid: b8f20000000040008000000000000012, type: 3}
+  cloudWispySprite: {fileID: 21300000, guid: b8f20000000040008000000000000013, type: 3}
+  moonSprite: {fileID: 21300000, guid: b8f20000000040008000000000000014, type: 3}
+  starSparkleSprite: {fileID: 21300000, guid: b8f20000000040008000000000000015, type: 3}
+  starDotSprite: {fileID: 21300000, guid: b8f20000000040008000000000000016, type: 3}
+  planetSprite: {fileID: 21300000, guid: b8f20000000040008000000000000017, type: 3}
+  shootingStarSprite: {fileID: 21300000, guid: b8f20000000040008000000000000018, type: 3}
+  galaxySpiralSprite: {fileID: 21300000, guid: b8f20000000040008000000000000019, type: 3}
+  galaxyNebulaSprite: {fileID: 21300000, guid: b8f2000000004000800000000000001a, type: 3}
+  galaxyRingSprite: {fileID: 21300000, guid: b8f2000000004000800000000000001b, type: 3}
   cloudCount: 7
   starCount: 34
+  galaxyCount: 5
   minShootingStarInterval: 3.5
   maxShootingStarInterval: 6.5
-  showZoneBanner: 1
+  showZoneBanner: 0
   usePreviewScore: 0
   previewScore: 0
