@@ -164,6 +164,7 @@ public class PlayerController : MonoBehaviour
 
         // 4. ZEMİN KONTROLÜ & TEK ZIPLAMA GÜVENCESİ
         yerdeMi = Physics2D.OverlapCircle(ayakNoktasi.position, ayakCapi, zeminKatmani);
+        JumpDustEffect.NotifyGroundState(ayakNoktasi.position, yerdeMi, rb.linearVelocity.y);
 
         // Karakter yere inip durduğunda veya aşağı düşerken zemine bastığında zıplama hakkı yenilenir
         if (yerdeMi && rb.linearVelocity.y <= 0.1f)
@@ -204,6 +205,8 @@ public class PlayerController : MonoBehaviour
 
             float currentJumpForce = jumpForce * Mathf.Sqrt(speedRatio);
             rb.AddForce(Vector2.up * currentJumpForce, ForceMode2D.Impulse);
+
+            JumpDustEffect.SpawnJumpDust(ayakNoktasi != null ? ayakNoktasi.position : transform.position);
 
             if (audioSource != null && jumpSound != null)
             {
