@@ -163,9 +163,8 @@ public class PlayerController : MonoBehaviour
         }
 
         // 4. ZEMİN KONTROLÜ & TEK ZIPLAMA GÜVENCESİ
-        Collider2D groundCollider = Physics2D.OverlapCircle(ayakNoktasi.position, ayakCapi, zeminKatmani);
-        yerdeMi = groundCollider != null;
-        JumpComboJuice.NotifyGroundState(ayakNoktasi.position, groundCollider, rb.linearVelocity.y);
+        yerdeMi = Physics2D.OverlapCircle(ayakNoktasi.position, ayakCapi, zeminKatmani);
+        JumpDustEffect.NotifyGroundState(ayakNoktasi.position, yerdeMi, rb.linearVelocity.y);
 
         // Karakter yere inip durduğunda veya aşağı düşerken zemine bastığında zıplama hakkı yenilenir
         if (yerdeMi && rb.linearVelocity.y <= 0.1f)
@@ -207,11 +206,11 @@ public class PlayerController : MonoBehaviour
             float currentJumpForce = jumpForce * Mathf.Sqrt(speedRatio);
             rb.AddForce(Vector2.up * currentJumpForce, ForceMode2D.Impulse);
 
-            float comboPitch = JumpComboJuice.NotifyPlayerJump(ayakNoktasi != null ? ayakNoktasi.position : transform.position);
+            JumpDustEffect.SpawnJumpDust(ayakNoktasi != null ? ayakNoktasi.position : transform.position);
 
             if (audioSource != null && jumpSound != null)
             {
-                JumpComboJuice.PlayJumpSfx(audioSource, jumpSound, ziplamaSesiSiddeti, comboPitch);
+                audioSource.PlayOneShot(jumpSound, ziplamaSesiSiddeti);
             }
         }
     }

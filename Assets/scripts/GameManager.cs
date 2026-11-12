@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 using TMPro;
@@ -110,11 +110,6 @@ public class GameManager : MonoBehaviour
             // 1000 puana kadar platform hızını pürüzsüzce maksimumHiz'a artır
             float hizOrani = Mathf.Clamp01(score / maxHizSkoru);
             globalPlatformSpeed = Mathf.Lerp(baslangicHizi, maksimumHiz, hizOrani);
-            JumpComboJuice.SyncGameState(true, false, this);
-        }
-        else
-        {
-            JumpComboJuice.SyncGameState(isGameActive, isPaused, this);
         }
     }
 
@@ -197,18 +192,9 @@ public class GameManager : MonoBehaviour
 #endif
     }
 
-    public void AddBonusScore(int amount)
-    {
-        if (!isGameActive || amount <= 0) return;
-        score += amount;
-        currentScore = score;
-        if (scoreText != null) scoreText.text = "SKOR: " + (int)score;
-    }
-
     public void TakeDamage()
     {
         if (!isGameActive) return;
-        JumpComboJuice.ResetCombo();
 
         health--;
         UpdateHealthUI();
