@@ -1178,7 +1178,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
   m_AnchorMax: {x: 1, y: 1}
-  m_AnchoredPosition: {x: 0, y: 0}
+  m_AnchoredPosition: {x: 0, y: 1}
   m_SizeDelta: {x: 0, y: 0}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &583941467
@@ -2259,8 +2259,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.0625, y: 0.17323078}
   m_AnchorMax: {x: 0.94375014, y: 0.8845385}
-  m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: 0, y: 0}
+  m_AnchoredPosition: {x: -12.1128, y: -7.4023}
+  m_SizeDelta: {x: 24.2256, y: 14.8045}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1685850171
 MonoBehaviour:
@@ -2282,17 +2282,17 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: "tu\u015F"
+  m_text: "j\u0131roskop"
   m_isRightToLeft: 0
-  m_fontAsset: {fileID: 11400000, guid: 1d2b57dba846adb4ead4a2e165bfccf2, type: 2}
-  m_sharedMaterial: {fileID: 4236965365385434780, guid: 1d2b57dba846adb4ead4a2e165bfccf2, type: 2}
+  m_fontAsset: {fileID: 11400000, guid: 5b3f351f1dac1b844a88f3322c00bcb5, type: 2}
+  m_sharedMaterial: {fileID: 4236965365385434780, guid: 5b3f351f1dac1b844a88f3322c00bcb5, type: 2}
   m_fontSharedMaterials: []
   m_fontMaterial: {fileID: 0}
   m_fontMaterials: []
   m_fontColor32:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontColor: {r: 0.482, g: 0.263, b: 0.322, a: 1}
+  m_fontColor: {r: 1, g: 1, b: 1, a: 1}
   m_enableVertexGradient: 0
   m_colorMode: 3
   m_fontColorGradient:
@@ -2309,8 +2309,8 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 22.5
-  m_fontSizeBase: 22.5
+  m_fontSize: 31.3
+  m_fontSizeBase: 31.3
   m_fontWeight: 400
   m_enableAutoSizing: 0
   m_fontSizeMin: 18
@@ -2348,7 +2348,7 @@ MonoBehaviour:
   m_VertexBufferAutoSizeReduction: 0
   m_useMaxVisibleDescender: 1
   m_pageToDisplay: 1
-  m_margin: {x: 15.144447, y: -2.3762016, z: 14.466499, w: 9.40116}
+  m_margin: {x: 15.144447, y: -2.3762016, z: -4.37558, w: 9.40116}
   m_isUsingLegacyAnimationComponent: 0
   m_isVolumetricText: 0
   m_hasFontAssetChanged: 0
@@ -2629,8 +2629,8 @@ MonoBehaviour:
       m_Calls: []
   m_text: ANA MENU
   m_isRightToLeft: 0
-  m_fontAsset: {fileID: 11400000, guid: 1d2b57dba846adb4ead4a2e165bfccf2, type: 2}
-  m_sharedMaterial: {fileID: 4236965365385434780, guid: 1d2b57dba846adb4ead4a2e165bfccf2, type: 2}
+  m_fontAsset: {fileID: 11400000, guid: 5b3f351f1dac1b844a88f3322c00bcb5, type: 2}
+  m_sharedMaterial: {fileID: 4236965365385434780, guid: 5b3f351f1dac1b844a88f3322c00bcb5, type: 2}
   m_fontSharedMaterials: []
   m_fontMaterial: {fileID: 0}
   m_fontMaterials: []
@@ -2654,8 +2654,8 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 20
-  m_fontSizeBase: 20
+  m_fontSize: 44.2
+  m_fontSizeBase: 44.2
   m_fontWeight: 400
   m_enableAutoSizing: 0
   m_fontSizeMin: 18
@@ -2741,8 +2741,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
   m_AnchorMax: {x: 0, y: 1}
-  m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: 48, y: 48}
+  m_AnchoredPosition: {x: 7, y: -0.00000667572}
+  m_SizeDelta: {x: 37.5806, y: 13.6162}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &1906996653
 CanvasRenderer:
@@ -2772,7 +2772,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_Sprite: {fileID: 8100100100100100104, guid: c4a01b2c3d4e5f60718293a4b5c6d7e8, type: 3}
+  m_Sprite: {fileID: 403085039841989221, guid: 603abb83490921841976d0f1b2045f23, type: 3}
   m_Type: 0
   m_PreserveAspect: 0
   m_FillCenter: 1
