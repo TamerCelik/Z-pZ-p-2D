@@ -212,6 +212,34 @@ public class PlayerController : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Yay / Trambolin üzerine basıldığında süper zıplama fırlatması tetikler.
+    /// </summary>
+    public void SuperBounce(float multiplier = 1.95f)
+    {
+        if (rb == null) return;
+
+        float speedRatio = (GameManager.globalPlatformSpeed > 0f) ? (GameManager.globalPlatformSpeed / 1.7f) : 1f;
+        speedRatio = Mathf.Clamp(speedRatio, 1f, 1.41f);
+
+        rb.linearVelocity = new Vector2(rb.linearVelocity.x, 0);
+
+        float currentJumpForce = jumpForce * Mathf.Sqrt(speedRatio) * multiplier;
+        rb.AddForce(Vector2.up * currentJumpForce, ForceMode2D.Impulse);
+
+        canJump = false;
+        coyoteTimeCounter = 0f;
+        jumpBufferCounter = 0f;
+
+        if (audioSource != null && jumpSound != null)
+        {
+            float oldPitch = audioSource.pitch;
+            audioSource.pitch = 1.45f;
+            audioSource.PlayOneShot(jumpSound, ziplamaSesiSiddeti * 1.3f);
+            audioSource.pitch = oldPitch;
+        }
+    }
+
     public void SetMobileMoveInput(float direction)
     {
         mobileMoveInput = direction;

@@ -31,6 +31,30 @@ public class PlatformSpawner : MonoBehaviour
     [Tooltip("1000 puanda ulaşılan maksimum hareketli platform şansı (%60)")]
     public float maksimumHareketSans = 0.60f;
 
+    [Header("Özel Platform Çeşitleri (Trambolin & Kırılan)")]
+    [Tooltip("Platform üzerinde trambolin/yay belirme şansı (%15)")]
+    [Range(0f, 1f)]
+    public float springSpawnChance = 0.15f;
+
+    [Tooltip("Kırılan/çatlak platform çıkma şansı (%20)")]
+    [Range(0f, 1f)]
+    public float breakableSpawnChance = 0.20f;
+
+    [Tooltip("Trambolin boşta durma sprite'ı")]
+    public Sprite trampolineIdleSprite;
+
+    [Tooltip("Trambolin zıplama sprite'ı")]
+    public Sprite trampolineJumpSprite;
+
+    [Tooltip("Kırılan platform çatlak sprite'ı (opsiyonel)")]
+    public Sprite breakableHitSprite;
+
+    [Tooltip("Kırılan platform parçalanma sprite'ı (opsiyonel)")]
+    public Sprite breakableBrokenSprite;
+
+    private bool lastWasBreakable = false;
+    private int spawnedPlatformCount = 0;
+
     [Header("Nadir Can İkonu (1000+ Skor Ödülü)")]
     [Tooltip("Can ikonu sprite'ı")]
     public Sprite heartSprite;
@@ -178,14 +202,18 @@ public class PlatformSpawner : MonoBehaviour
         int randomIndex = Random.Range(0, platformPrefabs.Length);
 
         lastSpawnedPlatform = Instantiate(platformPrefabs[randomIndex], spawnPos, Quaternion.identity);
+        spawnedPlatformCount++;
 
         // Skor arttıkça hareketli platform oranı %10'dan %60'a kadar kademeli artar
         float progress = Mathf.Clamp01(GameManager.currentScore / 1000f);
         float currentMovingChance = Mathf.Lerp(baslangicHareketSans, maksimumHareketSans, progress);
 
         PlatformMovement pm = lastSpawnedPlatform.GetComponent<PlatformMovement>();
+        bool isMoving = false;
+
         if (pm != null && Random.value < currentMovingChance)
         {
+            isMoving = true;
             float randomSpeed = Random.Range(1.6f, 2.3f);
             float randomDist = Random.Range(0.6f, 1.0f);
             pm.SetupMovement(true, randomSpeed, randomDist);
@@ -195,6 +223,31 @@ public class PlatformSpawner : MonoBehaviour
             {
                 sr.color = new Color(0.65f, 0.95f, 1.0f); // Hareketli olduğunu belli eden şık neon mavi tonu
             }
+        }
+
+        // Özel Platform Türleri Belirleme (İlk 3 platform her zaman sabit ve güvenlidir)
+        if (spawnedPlatformCount > 3)
+        {
+            // 1. Kırılan Platform: İki kırılan platform üst üste gelemez, hareketli olanlar kırılan yapılmaz
+            if (!isMoving && !lastWasBreakable && Random.value < breakableSpawnChance)
+            {
+                MakePlatformBreakable(lastSpawnedPlatform);
+                lastWasBreakable = true;
+            }
+            else
+            {
+                lastWasBreakable = false;
+
+                // 2. Trambolin / Yay Platformu: Kırılan platforma konmaz, normal veya hareketli platform üzerine yerleşir
+                if (Random.value < springSpawnChance)
+                {
+                    SpawnTrampoline(lastSpawnedPlatform);
+                }
+            }
+        }
+        else
+        {
+            lastWasBreakable = false;
         }
 
         // 1000 skordan sonra nadir olarak platform üzerinde can ikonu üret
@@ -242,5 +295,81 @@ public class PlatformSpawner : MonoBehaviour
         heartObj.AddComponent<HealthPickup>();
 
         heartObj.transform.SetParent(platform.transform);
+    }
+
+    /// <summary>
+    /// Platformu kırılan / çatlak platform haline getirir.
+    /// Karakter bastığında hafif titrer ve kısa süre sonra kırılarak düşer.
+    /// </summary>
+    void MakePlatformBreakable(GameObject platform)
+    {
+        if (platform == null) return;
+
+        BreakablePlatform bp = platform.AddComponent<BreakablePlatform>();
+        bp.brokenSprite = breakableBrokenSprite;
+
+        SpriteRenderer sr = platform.GetComponent<SpriteRenderer>();
+        if (sr != null)
+        {
+            if (breakableHitSprite != null)
+            {
+                sr.sprite = breakableHitSprite;
+            }
+            else
+            {
+                // Görsel olarak oyuncunun kırılabilir olduğunu anlayabilmesi için sıcak çatlak/ahşap tonu
+                sr.color = new Color(1f, 0.78f, 0.65f, 1f);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Platformun üzerine trambolin / yay yerleştirir.
+    /// Karakter üzerine bastığında süper zıplama ile fırlar.
+    /// </summary>
+    void SpawnTrampoline(GameObject platform)
+    {
+        if (platform == null) return;
+
+        GameObject trampObj = new GameObject("Trampoline");
+
+        // Platformun üst yüzeyini hesapla
+        Collider2D col = platform.GetComponent<Collider2D>();
+        float surfaceY = (col != null) ? col.bounds.max.y : (platform.transform.position.y + 0.35f);
+
+        // Platformun tam ortasında ve üst yüzeyinde dursun
+        trampObj.transform.position = new Vector3(platform.transform.position.x, surfaceY + 0.15f, 0f);
+
+        SpriteRenderer sr = trampObj.AddComponent<SpriteRenderer>();
+        if (trampolineIdleSprite != null)
+        {
+            sr.sprite = trampolineIdleSprite;
+        }
+        sr.sortingOrder = 4; // Platformun üstünde net görünsün
+
+        // Trambolin bileşeni
+        SpringTrampoline spring = trampObj.AddComponent<SpringTrampoline>();
+        spring.idleSprite = trampolineIdleSprite;
+        spring.jumpSprite = trampolineJumpSprite;
+        spring.bounceMultiplier = 1.95f;
+
+        // Tetikleyici (Trigger) Collider
+        BoxCollider2D boxCol = trampObj.AddComponent<BoxCollider2D>();
+        boxCol.isTrigger = true;
+        boxCol.size = new Vector2(0.28f, 0.22f);
+        boxCol.offset = new Vector2(0f, 0.05f);
+
+        // Trambolini platforma bağla (Platform hareket ederse onunla gitsin)
+        trampObj.transform.SetParent(platform.transform, true);
+
+        // Dünyada uygun boyutta görünmesi için (~0.65 birim genişlik)
+        Vector3 parentScale = platform.transform.lossyScale;
+        float targetWidth = 0.65f;
+        float targetHeight = 0.65f;
+        trampObj.transform.localScale = new Vector3(
+            targetWidth / Mathf.Max(0.01f, Mathf.Abs(parentScale.x)),
+            targetHeight / Mathf.Max(0.01f, Mathf.Abs(parentScale.y)),
+            1f
+        );
     }
 }
