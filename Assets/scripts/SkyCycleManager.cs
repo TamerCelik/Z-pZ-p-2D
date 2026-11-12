@@ -73,7 +73,6 @@ public class SkyCycleManager : MonoBehaviour
     [Header("Gokyuzu & Galaksi Sprite'lari (Assets/Resources/Sky)")]
     public Sprite cloudLargeSprite;
     public Sprite cloudSmallSprite;
-    public Sprite cloudWispySprite;
     public Sprite moonSprite;
     public Sprite starSparkleSprite;
     public Sprite starDotSprite;
@@ -232,7 +231,6 @@ public class SkyCycleManager : MonoBehaviour
     {
         if (cloudLargeSprite == null) cloudLargeSprite = Resources.Load<Sprite>("Sky/sky_cloud_large");
         if (cloudSmallSprite == null) cloudSmallSprite = Resources.Load<Sprite>("Sky/sky_cloud_small");
-        if (cloudWispySprite == null) cloudWispySprite = Resources.Load<Sprite>("Sky/sky_cloud_wispy");
         if (moonSprite == null) moonSprite = Resources.Load<Sprite>("Sky/sky_moon");
         if (starSparkleSprite == null) starSparkleSprite = Resources.Load<Sprite>("Sky/sky_star_sparkle");
         if (starDotSprite == null) starDotSprite = Resources.Load<Sprite>("Sky/sky_star_dot");
@@ -486,13 +484,10 @@ public class SkyCycleManager : MonoBehaviour
         Sprite fallbackCloud = CreateFallbackCloudSprite();
         Sprite large = cloudLargeSprite != null ? cloudLargeSprite : fallbackCloud;
         Sprite small = cloudSmallSprite != null ? cloudSmallSprite : fallbackCloud;
-        Sprite wispy = cloudWispySprite != null ? cloudWispySprite : small;
 
         for (int i = 0; i < cloudCount; i++)
         {
-            int variant = i % 3;
-            Sprite chosenSprite = variant == 0 ? large : (variant == 1 ? small : wispy);
-
+            bool isSmall = (i % 2 == 1);
             GameObject obj = new GameObject($"Cloud_{i}");
             obj.transform.SetParent(folder);
 
@@ -500,31 +495,24 @@ public class SkyCycleManager : MonoBehaviour
             float y = Mathf.Lerp(-camHalfHeight, camHalfHeight + 0.5f, (float)i / Mathf.Max(1, cloudCount));
             obj.transform.position = new Vector3(x, y, 4f);
 
-            float scale = variant == 0
-                ? Random.Range(0.58f, 0.82f)
-                : (variant == 1 ? Random.Range(0.52f, 0.76f) : Random.Range(0.62f, 0.90f));
+            float scale = isSmall ? Random.Range(0.32f, 0.48f) : Random.Range(0.38f, 0.55f);
             obj.transform.localScale = new Vector3(scale, scale, 1f);
 
             SpriteRenderer sr = obj.AddComponent<SpriteRenderer>();
-            sr.sprite = chosenSprite;
-            sr.flipX = (i % 2 == 1);
-            sr.sortingOrder = variant == 0 ? -70 : (variant == 1 ? -74 : -77);
+            sr.sprite = isSmall ? small : large;
+            sr.sortingOrder = isSmall ? -75 : -70;
             if (unlitMaterial != null) sr.sharedMaterial = unlitMaterial;
 
             float dir = (i % 2 == 0) ? 1f : -1f;
-            float maxAlpha = variant == 0
-                ? Random.Range(0.76f, 0.94f)
-                : (variant == 1 ? Random.Range(0.60f, 0.84f) : Random.Range(0.45f, 0.68f));
-
             clouds.Add(new DriftingElement
             {
                 transform = obj.transform,
                 renderer = sr,
                 baseScale = obj.transform.localScale,
                 baseTint = Color.white,
-                parallaxFactor = variant == 0 ? Random.Range(0.16f, 0.24f) : Random.Range(0.09f, 0.16f),
-                horizontalSpeed = dir * Random.Range(0.06f, 0.16f),
-                maxAlpha = maxAlpha
+                parallaxFactor = isSmall ? Random.Range(0.10f, 0.16f) : Random.Range(0.18f, 0.26f),
+                horizontalSpeed = dir * Random.Range(0.06f, 0.18f),
+                maxAlpha = isSmall ? Random.Range(0.55f, 0.80f) : Random.Range(0.75f, 0.95f)
             });
         }
     }

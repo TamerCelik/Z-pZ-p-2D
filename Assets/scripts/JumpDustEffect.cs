@@ -243,3 +243,4 @@ public class JumpDustEffect : MonoBehaviour
         return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 64f);
     }
 }
+

@@ -5849,7 +5849,6 @@ MonoBehaviour:
   globalLight2D: {fileID: 619394801}
   cloudLargeSprite: {fileID: 21300000, guid: b8f20000000040008000000000000011, type: 3}
   cloudSmallSprite: {fileID: 21300000, guid: b8f20000000040008000000000000012, type: 3}
-  cloudWispySprite: {fileID: 21300000, guid: b8f20000000040008000000000000013, type: 3}
   moonSprite: {fileID: 21300000, guid: b8f20000000040008000000000000014, type: 3}
   starSparkleSprite: {fileID: 21300000, guid: b8f20000000040008000000000000015, type: 3}
   starDotSprite: {fileID: 21300000, guid: b8f20000000040008000000000000016, type: 3}
