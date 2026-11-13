@@ -14,9 +14,13 @@ public class CoinPickup : MonoBehaviour
 
     [Header("Hareket ve Animasyon")]
     [SerializeField] private float bobSpeed = 3.6f;
-    [SerializeField] private float bobAmount = 0.08f;
+    [SerializeField] private float bobAmount = 0.09f;
     [SerializeField] private float pulseSpeed = 4.2f;
     [SerializeField] private float frameRate = 18f;
+
+    [Header("Boyut Ayarları")]
+    [SerializeField] private float normalWorldScale = 2.15f;
+    [SerializeField] private float rareWorldScale = 2.45f;
 
     private SpriteRenderer spriteRenderer;
     private Collider2D triggerCollider;
@@ -26,6 +30,7 @@ public class CoinPickup : MonoBehaviour
 
     private Vector3 baseLocalPosition;
     private Vector3 baseLocalScale = Vector3.one;
+    private float localBobAmount = 0.09f;
     private float phaseOffset;
     private float frameTimer;
     private int currentFrameIndex;
@@ -46,21 +51,23 @@ public class CoinPickup : MonoBehaviour
 
         EnsureComponents();
 
+        float desiredWorldScale = rare ? rareWorldScale : normalWorldScale;
+
         if (platformParent != null)
         {
             transform.SetParent(platformParent, false);
             transform.localPosition = localOffset;
 
-            float desiredWorldScale = rare ? 1.32f : 1.15f;
             Vector3 parentScale = platformParent.lossyScale;
-            baseLocalScale = new Vector3(
-                desiredWorldScale / Mathf.Max(0.01f, Mathf.Abs(parentScale.x)),
-                desiredWorldScale / Mathf.Max(0.01f, Mathf.Abs(parentScale.y)),
-                1f);
+            float invX = 1f / Mathf.Max(0.01f, Mathf.Abs(parentScale.x));
+            float invY = 1f / Mathf.Max(0.01f, Mathf.Abs(parentScale.y));
+            baseLocalScale = new Vector3(desiredWorldScale * invX, desiredWorldScale * invY, 1f);
+            localBobAmount = bobAmount * invY;
         }
         else
         {
-            baseLocalScale = Vector3.one * (rare ? 1.32f : 1.15f);
+            baseLocalScale = Vector3.one * desiredWorldScale;
+            localBobAmount = bobAmount;
         }
 
         transform.localScale = baseLocalScale;
@@ -95,7 +102,7 @@ public class CoinPickup : MonoBehaviour
             if (circle == null)
             {
                 circle = gameObject.AddComponent<CircleCollider2D>();
-                circle.radius = 0.28f;
+                circle.radius = 0.26f;
             }
             circle.isTrigger = true;
             triggerCollider = circle;
@@ -126,7 +133,7 @@ public class CoinPickup : MonoBehaviour
         float t = Time.time + phaseOffset;
 
         // Süzülme ve hafif nefes alma ölçeği
-        float yOffset = Mathf.Sin(t * bobSpeed) * bobAmount;
+        float yOffset = Mathf.Sin(t * bobSpeed) * localBobAmount;
         transform.localPosition = baseLocalPosition + new Vector3(0f, yOffset, 0f);
 
         float pulse = 1f + Mathf.Sin(t * pulseSpeed) * 0.06f;
@@ -161,8 +168,23 @@ public class CoinPickup : MonoBehaviour
 
     private void OnTriggerEnter2D(Collider2D other)
     {
-        if (isCollected) return;
-        if (!other.CompareTag("Player")) return;
+        TryCollect(other);
+    }
+
+    private void OnTriggerStay2D(Collider2D other)
+    {
+        TryCollect(other);
+    }
+
+    private void TryCollect(Collider2D other)
+    {
+        if (isCollected || other == null) return;
+
+        bool isPlayer = other.CompareTag("Player")
+            || other.GetComponentInParent<PlayerController>() != null
+            || other.name.ToLowerInvariant().Contains("karakter");
+
+        if (!isPlayer) return;
 
         isCollected = true;
         if (triggerCollider != null) triggerCollider.enabled = false;
@@ -180,7 +202,9 @@ public class CoinPickup : MonoBehaviour
         }
 
         SpawnFloatingBonusText();
+        Vector3 worldScale = transform.lossyScale;
         transform.SetParent(null, true);
+        transform.localScale = worldScale * 1.15f;
         StartCoroutine(PlayCollectedAndDestroy());
     }
 
@@ -190,9 +214,6 @@ public class CoinPickup : MonoBehaviour
         {
             spriteRenderer.color = isRareFruit ? new Color(1f, 0.92f, 0.45f, 1f) : Color.white;
         }
-
-        Vector3 worldScale = transform.lossyScale;
-        transform.localScale = worldScale * 1.15f;
 
         if (collectedFrames != null && collectedFrames.Length > 0 && spriteRenderer != null)
         {
@@ -271,3 +292,4 @@ internal class FloatingCoinPopup : MonoBehaviour
         }
     }
 }
+
