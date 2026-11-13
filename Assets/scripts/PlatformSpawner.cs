@@ -225,11 +225,11 @@ public class PlatformSpawner : MonoBehaviour
     }
 
     [Header("Coin Meyve Ayarları")]
-    [SerializeField] private float coinSpawnChance = 0.42f;
-    [SerializeField] private int minPlatformsBetweenCoins = 3;
+    [SerializeField] private float coinSpawnChance = 0.25f;
+    [SerializeField] private int minPlatformsBetweenCoins = 6;
     [SerializeField] private float rareFruitScoreThreshold = 1000f;
     [SerializeField] private float rareFruitChance = 0.14f;
-    private int platformsSinceLastCoin = 2;
+    private int platformsSinceLastCoin = 3;
 
     private void TrySpawnPlatformCoin(GameObject platform, bool platformHasHeart)
     {
