@@ -120,3 +120,4 @@ MonoBehaviour:
   badgePillSprite: {fileID: -2196941174978500368, guid: 5423095bbb4ac6d4e8f76c66430de441, type: 3}
   backButtonSprite: {fileID: 8100100100100100106, guid: c6a01b2c3d4e5f60718293a4b5c6d7e8, type: 3}
   starIconSprite: {fileID: 1818913276908518488, guid: 6832823ff1c047e4db67038194b57052, type: 3}
+

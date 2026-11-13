@@ -137,3 +137,4 @@ public static class CharacterShopData
         return true;
     }
 }
+

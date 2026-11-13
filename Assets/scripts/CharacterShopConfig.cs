@@ -61,3 +61,4 @@ public class CharacterShopConfig : ScriptableObject
         return characters[0];
     }
 }
+
