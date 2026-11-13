@@ -53,9 +53,22 @@ public class GameManager : MonoBehaviour
     private bool isGameActive = true;
     private bool isPaused = false;
 
+    [Header("Coin Sistemi")]
+    public TextMeshProUGUI coinText;
+    public static GameManager Instance { get; private set; }
+
+    private AudioSource coinAudioSource;
+    private Coroutine coinPunchCoroutine;
+
     void Awake()
     {
+        Instance = this;
         QualitySettings.vSyncCount = 0; // vSync kapatılarak targetFrameRate'in mobilde devreye girmesi sağlanır
+    }
+
+    private void OnDestroy()
+    {
+        if (Instance == this) Instance = null;
     }
 
     void Start()
@@ -66,12 +79,16 @@ public class GameManager : MonoBehaviour
         audioSource = GetComponent<AudioSource>();
         if (audioSource == null) audioSource = gameObject.AddComponent<AudioSource>();
 
+        coinAudioSource = gameObject.AddComponent<AudioSource>();
+        coinAudioSource.playOnAwake = false;
+
         globalPlatformSpeed = baslangicHizi;
         score = 0;
         currentScore = 0;
         isGameActive = true;
         isPaused = false;
         UpdateHealthUI();
+        UpdateCoinUI();
         Time.timeScale = 1;
 
         GuvenliPlatformOlustur();
@@ -235,6 +252,60 @@ public class GameManager : MonoBehaviour
     void UpdateHealthUI()
     {
         if (healthText != null) healthText.text = "CAN: " + health;
+    }
+
+    public void UpdateCoinUI()
+    {
+        if (coinText != null)
+        {
+            coinText.text = "COIN: " + CharacterShopData.GetCoins();
+        }
+    }
+
+    /// <summary>
+    /// Coin toplandığında HUD sayacını günceller, kısa ölçek vurgusu ve pitched ses efekti çalar.
+    /// </summary>
+    public void NotifyCoinCollected(int amount, AudioClip clip, bool isRare)
+    {
+        UpdateCoinUI();
+
+        if (clip != null)
+        {
+            if (coinAudioSource == null)
+            {
+                coinAudioSource = gameObject.AddComponent<AudioSource>();
+                coinAudioSource.playOnAwake = false;
+            }
+
+            coinAudioSource.pitch = isRare ? Random.Range(1.42f, 1.52f) : Random.Range(1.24f, 1.34f);
+            coinAudioSource.PlayOneShot(clip, isRare ? 0.62f : 0.45f);
+        }
+
+        if (coinText != null && gameObject.activeInHierarchy)
+        {
+            if (coinPunchCoroutine != null) StopCoroutine(coinPunchCoroutine);
+            coinPunchCoroutine = StartCoroutine(PunchCoinHudRoutine());
+        }
+    }
+
+    private System.Collections.IEnumerator PunchCoinHudRoutine()
+    {
+        Transform target = coinText.transform.parent != null && coinText.transform.parent.name == "CoinBadge"
+            ? coinText.transform.parent
+            : coinText.transform;
+
+        target.localScale = Vector3.one * 1.18f;
+        float elapsed = 0f;
+        const float duration = 0.16f;
+        while (elapsed < duration)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            float t = Mathf.Clamp01(elapsed / duration);
+            target.localScale = Vector3.Lerp(Vector3.one * 1.18f, Vector3.one, t);
+            yield return null;
+        }
+        target.localScale = Vector3.one;
+        coinPunchCoroutine = null;
     }
 
     void GameOver()

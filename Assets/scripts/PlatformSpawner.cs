@@ -198,12 +198,14 @@ public class PlatformSpawner : MonoBehaviour
         }
 
         // 1000 skordan sonra nadir olarak platform üzerinde can ikonu üret
+        bool spawnedHeart = false;
         if (GameManager.currentScore >= 1000f && platformsSinceLastHeart >= minPlatformsBetweenHearts)
         {
             if (Random.value < heartSpawnChance)
             {
                 SpawnHeartPickup(lastSpawnedPlatform);
                 platformsSinceLastHeart = 0;
+                spawnedHeart = true;
             }
             else
             {
@@ -215,8 +217,63 @@ public class PlatformSpawner : MonoBehaviour
             platformsSinceLastHeart++;
         }
 
+        // Aynı platformda can yoksa belirli aralıklarla coin meyvesi üret
+        TrySpawnPlatformCoin(lastSpawnedPlatform, spawnedHeart);
+
         // Bir sonraki platform için güvenli ve rahat dikey mesafe belirle (1.6f - 2.1f)
         nextSpawnDistance = Random.Range(minDistance, maxDistance);
+    }
+
+    [Header("Coin Meyve Ayarları")]
+    [SerializeField] private float coinSpawnChance = 0.42f;
+    [SerializeField] private int minPlatformsBetweenCoins = 3;
+    [SerializeField] private float rareFruitScoreThreshold = 1000f;
+    [SerializeField] private float rareFruitChance = 0.14f;
+    private int platformsSinceLastCoin = 2;
+
+    private void TrySpawnPlatformCoin(GameObject platform, bool platformHasHeart)
+    {
+        if (platform == null || platformHasHeart)
+        {
+            platformsSinceLastCoin++;
+            return;
+        }
+
+        if (platformsSinceLastCoin < minPlatformsBetweenCoins)
+        {
+            platformsSinceLastCoin++;
+            return;
+        }
+
+        if (Random.value >= coinSpawnChance)
+        {
+            platformsSinceLastCoin++;
+            return;
+        }
+
+        platformsSinceLastCoin = 0;
+
+        bool isRare = GameManager.currentScore >= rareFruitScoreThreshold && Random.value < rareFruitChance;
+        int value = isRare ? 3 : 1;
+
+        // %40 olasılıkla risk-ödül konumu: kenara kaydırılmış ve biraz daha yüksekte
+        bool riskReward = Random.value < 0.40f;
+        float worldX = riskReward
+            ? (Random.value < 0.5f ? -1f : 1f) * Random.Range(0.28f, 0.46f)
+            : Random.Range(-0.32f, 0.32f);
+        float worldY = riskReward
+            ? Random.Range(0.88f, 1.12f)
+            : Random.Range(0.62f, 0.78f);
+
+        Vector3 pScale = platform.transform.lossyScale;
+        Vector3 localOffset = new Vector3(
+            worldX / Mathf.Max(0.01f, Mathf.Abs(pScale.x)),
+            worldY / Mathf.Max(0.01f, Mathf.Abs(pScale.y)),
+            0f);
+
+        GameObject coinGo = new GameObject(isRare ? "Coin_Pineapple_3" : "Coin_Cherries_1");
+        CoinPickup pickup = coinGo.AddComponent<CoinPickup>();
+        pickup.Configure(value, isRare, platform.transform, localOffset);
     }
 
     /// <summary>
