@@ -69,6 +69,7 @@ public class SettingsManager : MonoBehaviour
         GuncelleKontrolText(mode);
     }
 
+
     private void GuncelleKontrolText(int mode)
     {
         if (kontrolButonText != null)

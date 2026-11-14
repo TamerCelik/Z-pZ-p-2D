@@ -12,6 +12,8 @@ public class ShopMenuUI : MonoBehaviour
 {
     private const float PreviewFrameRate = 12f;
 
+
+
     [Serializable]
     public class ShopCardSlot
     {
@@ -44,7 +46,7 @@ public class ShopMenuUI : MonoBehaviour
 
     private static readonly Color SelectedBtnColor = new Color(0.13f, 0.77f, 0.42f, 1f);
     private static readonly Color UnlockedBtnColor = new Color(0.20f, 0.65f, 0.96f, 1f);
-    private static readonly Color BuyableBtnColor = new Color(0.96f, 0.62f, 0.08f, 1f);
+    private static readonly Color BuyableBtnColor = new Color(0.95f, 0.62f, 0.08f, 1f);
     private static readonly Color LockedBtnColor = new Color(0.55f, 0.58f, 0.66f, 1f);
 
     private static readonly Color SelectedCardBg = new Color(0.89f, 1.00f, 0.92f, 1f);

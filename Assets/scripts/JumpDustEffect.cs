@@ -20,6 +20,7 @@ public class JumpDustEffect : MonoBehaviour
         public bool active;
     }
 
+
     private const int DustPoolSize = 24;
 
     private static JumpDustEffect instance;
