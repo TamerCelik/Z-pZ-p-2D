@@ -6,7 +6,22 @@ using UnityEngine;
 /// </summary>
 public class PlatformSpawner : MonoBehaviour
 {
+    [Header("Genel / Yedek Platform Prefabları")]
     public GameObject[] platformPrefabs;
+
+    [Header("Döngüye Göre Platform Prefabları (Sabah / Öğle / Akşam / Gece / Uzay)")]
+    [Tooltip("0 - 280 skor arası Sabah (Çimenli & Papatyalı) platformları")]
+    public GameObject[] sabahPrefabs;
+    [Tooltip("280 - 520 skor arası Öğle (Altın Çayır & Bal Köprü) platformları")]
+    public GameObject[] oglePrefabs;
+    [Tooltip("520 - 760 skor arası Akşam / Gün Batımı (Pembe Bulut & Kehribar) platformları")]
+    public GameObject[] aksamPrefabs;
+    [Tooltip("760 - 1200 skor arası Gece (Parlayan Mantarlı Ay Taşı & Gece Bulutu) platformları")]
+    public GameObject[] gecePrefabs;
+    [Tooltip("1200+ skor Uzay & Galaksi (Nebula Kristal & Yıldız Geçidi) platformları")]
+    public GameObject[] uzayPrefabs;
+
+    private SkyCycleManager skyCycleManager;
 
     [Header("Mesafe Ayarları (Çakışmayı Önleyen Güvenli Aralık)")]
     [Tooltip("Platformlar arası minimum dikey mesafe (üst üste binmeyi engeller)")]
@@ -48,6 +63,7 @@ public class PlatformSpawner : MonoBehaviour
 
     void Start()
     {
+        skyCycleManager = Object.FindAnyObjectByType<SkyCycleManager>();
         CalculateLimits();
         nextSpawnDistance = Random.Range(minDistance, maxDistance);
         SpawnPlatform();
@@ -175,9 +191,10 @@ public class PlatformSpawner : MonoBehaviour
         }
 
         Vector2 spawnPos = new Vector2(chosenX, transform.position.y);
-        int randomIndex = Random.Range(0, platformPrefabs.Length);
+        GameObject selectedPrefab = SelectPlatformPrefabForCurrentCycle();
+        if (selectedPrefab == null) return;
 
-        lastSpawnedPlatform = Instantiate(platformPrefabs[randomIndex], spawnPos, Quaternion.identity);
+        lastSpawnedPlatform = Instantiate(selectedPrefab, spawnPos, Quaternion.identity);
 
         // Skor arttıkça hareketli platform oranı %10'dan %60'a kadar kademeli artar
         float progress = Mathf.Clamp01(GameManager.currentScore / 1000f);
@@ -189,12 +206,6 @@ public class PlatformSpawner : MonoBehaviour
             float randomSpeed = Random.Range(1.6f, 2.3f);
             float randomDist = Random.Range(0.6f, 1.0f);
             pm.SetupMovement(true, randomSpeed, randomDist);
-
-            SpriteRenderer sr = lastSpawnedPlatform.GetComponent<SpriteRenderer>();
-            if (sr != null)
-            {
-                sr.color = new Color(0.65f, 0.95f, 1.0f); // Hareketli olduğunu belli eden şık neon mavi tonu
-            }
         }
 
         // 1000 skordan sonra nadir olarak platform üzerinde can ikonu üret
@@ -222,6 +233,93 @@ public class PlatformSpawner : MonoBehaviour
 
         // Bir sonraki platform için güvenli ve rahat dikey mesafe belirle (1.6f - 2.1f)
         nextSpawnDistance = Random.Range(minDistance, maxDistance);
+    }
+
+    /// <summary>
+    /// Mevcut gökyüzü döngüsü skoruna göre Sabah / Öğle / Akşam / Gece / Uzay prefab havuzundan
+    /// uygun platformu seçer (geçiş eşiklerinde yumuşak olasılık karışımı uygular).
+    /// </summary>
+    public GameObject SelectPlatformPrefabForCurrentCycle()
+    {
+        if (skyCycleManager == null)
+        {
+            skyCycleManager = Object.FindAnyObjectByType<SkyCycleManager>();
+        }
+
+        float cycleScore = skyCycleManager != null
+            ? skyCycleManager.GetCurrentMappedScore()
+            : GameManager.currentScore;
+
+        GameObject[] primaryPool = GetPhasePool(cycleScore);
+        GameObject chosen = PickRandomFromPool(primaryPool);
+        if (chosen != null) return chosen;
+
+        return PickRandomFromPool(platformPrefabs);
+    }
+
+    private GameObject[] GetPhasePool(float score)
+    {
+        // Geçiş bölgelerinde (±25 skor) iki evre arasında yumuşak geçiş
+        if (score < 280f)
+        {
+            if (score > 255f && Random.value < Mathf.InverseLerp(255f, 280f, score) && HasValidItem(oglePrefabs))
+                return oglePrefabs;
+            return HasValidItem(sabahPrefabs) ? sabahPrefabs : platformPrefabs;
+        }
+        if (score < 520f)
+        {
+            if (score > 495f && Random.value < Mathf.InverseLerp(495f, 520f, score) && HasValidItem(aksamPrefabs))
+                return aksamPrefabs;
+            return HasValidItem(oglePrefabs) ? oglePrefabs : platformPrefabs;
+        }
+        if (score < 760f)
+        {
+            if (score > 735f && Random.value < Mathf.InverseLerp(735f, 760f, score) && HasValidItem(gecePrefabs))
+                return gecePrefabs;
+            return HasValidItem(aksamPrefabs) ? aksamPrefabs : platformPrefabs;
+        }
+        if (score < 1200f)
+        {
+            if (score > 1170f && Random.value < Mathf.InverseLerp(1170f, 1200f, score) && HasValidItem(uzayPrefabs))
+                return uzayPrefabs;
+            return HasValidItem(gecePrefabs) ? gecePrefabs : platformPrefabs;
+        }
+
+        // Sürekli döngü aktifse 1760-2000 şafak evresinde tekrar sabaha karışır
+        if (skyCycleManager != null && skyCycleManager.useContinuousLoop && score >= 1760f)
+        {
+            if (Random.value < Mathf.InverseLerp(1760f, 1980f, score) && HasValidItem(sabahPrefabs))
+                return sabahPrefabs;
+        }
+
+        if (HasValidItem(uzayPrefabs)) return uzayPrefabs;
+        if (HasValidItem(gecePrefabs)) return gecePrefabs;
+        return platformPrefabs;
+    }
+
+    private static bool HasValidItem(GameObject[] pool)
+    {
+        if (pool == null || pool.Length == 0) return false;
+        for (int i = 0; i < pool.Length; i++)
+        {
+            if (pool[i] != null) return true;
+        }
+        return false;
+    }
+
+    private static GameObject PickRandomFromPool(GameObject[] pool)
+    {
+        if (!HasValidItem(pool)) return null;
+        for (int attempt = 0; attempt < 6; attempt++)
+        {
+            GameObject candidate = pool[Random.Range(0, pool.Length)];
+            if (candidate != null) return candidate;
+        }
+        for (int i = 0; i < pool.Length; i++)
+        {
+            if (pool[i] != null) return pool[i];
+        }
+        return null;
     }
 
     [Header("Coin Meyve Ayarları")]
