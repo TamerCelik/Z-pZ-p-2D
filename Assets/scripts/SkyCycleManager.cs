@@ -201,6 +201,20 @@ public class SkyCycleManager : MonoBehaviour
         return usePreviewScore ? Mathf.Max(0f, previewScore) : Mathf.Max(0f, GameManager.currentScore);
     }
 
+    /// <summary>
+    /// PlatformSpawner gibi sistemlerin mevcut gokyuzu evresiyle (0-2000+ olcekli)
+    /// birebir uyumlu prefab secebilmesi icin aktif dongu skorunu dondurur.
+    /// </summary>
+    public float GetCurrentMappedScore()
+    {
+        float totalScore = GetEffectiveScore();
+        float safeCycleLen = Mathf.Max(200f, cycleLength);
+        float cycleRatio = safeCycleLen / 2000f;
+        return useContinuousLoop
+            ? (totalScore % safeCycleLen) / cycleRatio
+            : totalScore / cycleRatio;
+    }
+
     private void ResolveReferences()
     {
         if (mainCamera == null) mainCamera = Camera.main;

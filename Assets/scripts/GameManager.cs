@@ -242,10 +242,18 @@ public class GameManager : MonoBehaviour
 
     void GuvenliPlatformOlustur()
     {
-        if (guvenliPlatformPrefab != null && respawnPoint != null)
+        if (respawnPoint == null) return;
+
+        PlatformSpawner spawner = Object.FindAnyObjectByType<PlatformSpawner>();
+        GameObject prefabToSpawn = spawner != null
+            ? spawner.SelectPlatformPrefabForCurrentCycle()
+            : null;
+        if (prefabToSpawn == null) prefabToSpawn = guvenliPlatformPrefab;
+
+        if (prefabToSpawn != null)
         {
             Vector2 platformKonumu = new Vector2(respawnPoint.position.x, respawnPoint.position.y - platformMesafeAyari);
-            Instantiate(guvenliPlatformPrefab, platformKonumu, Quaternion.identity);
+            Instantiate(prefabToSpawn, platformKonumu, Quaternion.identity);
         }
     }
 
