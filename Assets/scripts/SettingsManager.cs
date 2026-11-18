@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 
@@ -11,6 +11,8 @@ public class SettingsManager : MonoBehaviour
     [Header("Kontrol Ayarları")]
     [Tooltip("Kontrol modunu gösteren buton metni (Örn: TUŞLAR / JİROSKOP)")]
     public TextMeshProUGUI kontrolButonText;
+    [Tooltip("Yön tuşlarının sağda mı solda mı olduğunu gösteren buton metni")]
+    public TextMeshProUGUI tusYeriButonText;
 
     void Start()
     {
@@ -26,6 +28,9 @@ public class SettingsManager : MonoBehaviour
         // Kayıtlı kontrol modunu yükle ve metni güncelle
         int kayitliMod = PlayerPrefs.GetInt("ControlMode", 0);
         GuncelleKontrolText(kayitliMod);
+
+        int kayitliDuzen = PlayerPrefs.GetInt("ButtonLayout", 0);
+        GuncelleTusYeriText(kayitliDuzen);
 
         if (ayarlarPaneli != null)
         {
@@ -75,6 +80,23 @@ public class SettingsManager : MonoBehaviour
         if (kontrolButonText != null)
         {
             kontrolButonText.text = (mode == 1) ? "JIROSKOP" : "TUS";
+        }
+    }
+
+    public void TusYeriniDegistir()
+    {
+        int mevcutDuzen = PlayerPrefs.GetInt("ButtonLayout", 0);
+        int yeniDuzen = (mevcutDuzen == 0) ? 1 : 0;
+        PlayerPrefs.SetInt("ButtonLayout", yeniDuzen);
+        PlayerPrefs.Save();
+        GuncelleTusYeriText(yeniDuzen);
+    }
+
+    private void GuncelleTusYeriText(int layout)
+    {
+        if (tusYeriButonText != null)
+        {
+            tusYeriButonText.text = (layout == 1) ? "YON TUSLARI: SAG" : "YON TUSLARI: SOL";
         }
     }
 }

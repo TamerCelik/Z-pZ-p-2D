@@ -55,6 +55,7 @@ public class GameManager : MonoBehaviour
 
     [Header("Coin Sistemi")]
     public TextMeshProUGUI coinText;
+    public TextMeshProUGUI tusYeriButonText;
     public static GameManager Instance { get; private set; }
 
     private AudioSource coinAudioSource;
@@ -105,6 +106,7 @@ public class GameManager : MonoBehaviour
         if (sesSlider != null) sesSlider.value = kayitliSes;
 
         GuncelleKontrolText(PlayerPrefs.GetInt("ControlMode", 0));
+        GuncelleTusYeriText(PlayerPrefs.GetInt("ButtonLayout", 0));
     }
 
     void Update()
@@ -146,6 +148,7 @@ public class GameManager : MonoBehaviour
         float kayitliSes = PlayerPrefs.GetFloat("OyunSesi", 1f);
         if (sesSlider != null) sesSlider.value = kayitliSes;
         GuncelleKontrolText(PlayerPrefs.GetInt("ControlMode", 0));
+        GuncelleTusYeriText(PlayerPrefs.GetInt("ButtonLayout", 0));
     }
 
     public void ResumeGame()
@@ -185,6 +188,30 @@ public class GameManager : MonoBehaviour
         if (kontrolButonText != null)
         {
             kontrolButonText.text = (mode == 1) ? "JIROSKOP" : "TUS";
+        }
+    }
+
+    private void GuncelleTusYeriText(int layout)
+    {
+        if (tusYeriButonText != null)
+        {
+            tusYeriButonText.text = (layout == 1) ? "YON TUSLARI: SAG" : "YON TUSLARI: SOL";
+        }
+    }
+
+    public void TusYeriniDegistir()
+    {
+        int current = PlayerPrefs.GetInt("ButtonLayout", 0);
+        int next = (current == 0) ? 1 : 0;
+        PlayerPrefs.SetInt("ButtonLayout", next);
+        PlayerPrefs.Save();
+
+        GuncelleTusYeriText(next);
+
+        PlayerController pc = Object.FindFirstObjectByType<PlayerController>();
+        if (pc != null)
+        {
+            pc.ApplyControlModeUI();
         }
     }
     #endregion

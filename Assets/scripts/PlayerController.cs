@@ -32,6 +32,7 @@ public class PlayerController : MonoBehaviour
     [Header("Mobil Buton Referansları")]
     public GameObject leftButtonObj;
     public GameObject rightButtonObj;
+    public GameObject jumpButtonObj;
 
     [Header("Zemin Kontrolü & Zıplama Kilidi")]
     public Transform ayakNoktasi;
@@ -79,6 +80,7 @@ public class PlayerController : MonoBehaviour
     {
         if (leftButtonObj == null) leftButtonObj = GameObject.Find("Btn_Sol");
         if (rightButtonObj == null) rightButtonObj = GameObject.Find("Btn_Sag");
+        if (jumpButtonObj == null) jumpButtonObj = GameObject.Find("Btn_Zirla");
 
         if (controlMode == 1) // Jiroskop / Eğim Modu
         {
@@ -89,6 +91,34 @@ public class PlayerController : MonoBehaviour
         {
             if (leftButtonObj != null) leftButtonObj.SetActive(true);
             if (rightButtonObj != null) rightButtonObj.SetActive(true);
+        }
+
+        int buttonLayout = PlayerPrefs.GetInt("ButtonLayout", 0);
+        ApplyButtonLayoutPositions(buttonLayout);
+    }
+
+    private void ApplyButtonLayoutPositions(int buttonLayout)
+    {
+        float leftBtnX = (buttonLayout == 1) ? 24f : -124f;
+        float rightBtnX = (buttonLayout == 1) ? 124f : -24f;
+        float jumpBtnX = (buttonLayout == 1) ? -112f : 112f;
+
+        if (leftButtonObj != null)
+        {
+            RectTransform rt = leftButtonObj.GetComponent<RectTransform>();
+            if (rt != null) rt.anchoredPosition = new Vector2(leftBtnX, rt.anchoredPosition.y);
+        }
+
+        if (rightButtonObj != null)
+        {
+            RectTransform rt = rightButtonObj.GetComponent<RectTransform>();
+            if (rt != null) rt.anchoredPosition = new Vector2(rightBtnX, rt.anchoredPosition.y);
+        }
+
+        if (jumpButtonObj != null)
+        {
+            RectTransform rt = jumpButtonObj.GetComponent<RectTransform>();
+            if (rt != null) rt.anchoredPosition = new Vector2(jumpBtnX, rt.anchoredPosition.y);
         }
     }
 
