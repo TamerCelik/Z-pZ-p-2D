@@ -26,6 +26,7 @@ public class SkyCycleManager : MonoBehaviour
         public float galaxyVisibility;
         public float lightIntensity;
         public Color lightColor;
+        public Color bottomBarColor;
     }
 
     private struct DriftingElement
@@ -69,6 +70,14 @@ public class SkyCycleManager : MonoBehaviour
     public Camera mainCamera;
     public VideoPlayer backgroundVideo;
     public Light2D globalLight2D;
+    public Image bottomBarImage;
+    [Range(0.5f, 10f)] public float bottomBarColorSmoothSpeed = 3.5f;
+
+    [Header("Baslangic Manzarasi (Aya Seyahat Stili)")]
+    public bool useLaunchLandscape = true;
+    public Sprite launchMountainsSprite;
+    public Sprite launchMeadowPinesSprite;
+    public float landscapeExitScore = 240f;
 
     [Header("Gokyuzu & Galaksi Sprite'lari (Assets/Resources/Sky)")]
     public Sprite cloudLargeSprite;
@@ -128,6 +137,12 @@ public class SkyCycleManager : MonoBehaviour
     private Transform planetTransform;
     private Vector3 planetBasePos;
 
+    private Transform launchMountainsTransform;
+    private Transform launchMeadowTransform;
+    private float launchMountainsBaseY;
+    private float launchMeadowBaseY;
+    private float launchExitTravel;
+
     private ShootingStarInstance shootingStar;
     private float nextShootingStarTimer;
 
@@ -155,6 +170,7 @@ public class SkyCycleManager : MonoBehaviour
         InitializeKeyframes();
         CreateUnlitMaterial();
         CreateGradientBackdrop();
+        CreateLaunchLandscape();
         CreateClouds();
         CreateStars();
         CreateGalaxies();
@@ -239,6 +255,15 @@ public class SkyCycleManager : MonoBehaviour
         {
             globalLight2D = Object.FindAnyObjectByType<Light2D>();
         }
+
+        if (bottomBarImage == null)
+        {
+            GameObject bottomBarObj = GameObject.Find("BottomBar");
+            if (bottomBarObj != null)
+            {
+                bottomBarImage = bottomBarObj.GetComponent<Image>();
+            }
+        }
     }
 
     private void ResolveSprites()
@@ -253,6 +278,8 @@ public class SkyCycleManager : MonoBehaviour
         if (galaxySpiralSprite == null) galaxySpiralSprite = Resources.Load<Sprite>("Sky/sky_galaxy_spiral");
         if (galaxyNebulaSprite == null) galaxyNebulaSprite = Resources.Load<Sprite>("Sky/sky_galaxy_nebula");
         if (galaxyRingSprite == null) galaxyRingSprite = Resources.Load<Sprite>("Sky/sky_galaxy_ring");
+        if (launchMountainsSprite == null) launchMountainsSprite = Resources.Load<Sprite>("Sky/launch_mountains");
+        if (launchMeadowPinesSprite == null) launchMeadowPinesSprite = Resources.Load<Sprite>("Sky/launch_meadow_pines");
     }
 
     private void CreateUnlitMaterial()
@@ -320,7 +347,8 @@ public class SkyCycleManager : MonoBehaviour
         spaceVisibility = 0f,
         galaxyVisibility = 0f,
         lightIntensity = 1.00f,
-        lightColor = Color.white
+        lightColor = Color.white,
+        bottomBarColor = Color.white
     };
 
     private static SkyKeyframe CreateSunsetStartKeyframe(float score) => new SkyKeyframe
@@ -336,7 +364,8 @@ public class SkyCycleManager : MonoBehaviour
         spaceVisibility = 0f,
         galaxyVisibility = 0f,
         lightIntensity = 0.97f,
-        lightColor = Hex("#FFF7EE")
+        lightColor = Hex("#FFF7EE"),
+        bottomBarColor = Hex("#FFF2CC")
     };
 
     private static SkyKeyframe CreateSunsetPeakKeyframe(float score) => new SkyKeyframe
@@ -352,7 +381,8 @@ public class SkyCycleManager : MonoBehaviour
         spaceVisibility = 0f,
         galaxyVisibility = 0f,
         lightIntensity = 0.91f,
-        lightColor = Hex("#FFE1D6")
+        lightColor = Hex("#FFE1D6"),
+        bottomBarColor = Hex("#F2A8C0")
     };
 
     private static SkyKeyframe CreateDuskKeyframe(float score) => new SkyKeyframe
@@ -368,7 +398,8 @@ public class SkyCycleManager : MonoBehaviour
         spaceVisibility = 0f,
         galaxyVisibility = 0f,
         lightIntensity = 0.84f,
-        lightColor = Hex("#DCD8FF")
+        lightColor = Hex("#DCD8FF"),
+        bottomBarColor = Hex("#9A86C4")
     };
 
     private static SkyKeyframe CreateNightKeyframe(float score) => new SkyKeyframe
@@ -384,7 +415,8 @@ public class SkyCycleManager : MonoBehaviour
         spaceVisibility = 0.15f,
         galaxyVisibility = 0f,
         lightIntensity = 0.82f,
-        lightColor = Hex("#D8DDFF")
+        lightColor = Hex("#D8DDFF"),
+        bottomBarColor = Hex("#6374B8")
     };
 
     private static SkyKeyframe CreateSpaceKeyframe(float score) => new SkyKeyframe
@@ -400,7 +432,8 @@ public class SkyCycleManager : MonoBehaviour
         spaceVisibility = 1.00f,
         galaxyVisibility = 0f,
         lightIntensity = 0.85f,
-        lightColor = Hex("#E5DBFF")
+        lightColor = Hex("#E5DBFF"),
+        bottomBarColor = Hex("#6F54B8")
     };
 
     private static SkyKeyframe CreateNebulaKeyframe(float score) => new SkyKeyframe
@@ -416,7 +449,8 @@ public class SkyCycleManager : MonoBehaviour
         spaceVisibility = 1.00f,
         galaxyVisibility = 0.15f,
         lightIntensity = 0.85f,
-        lightColor = Hex("#EBDDFF")
+        lightColor = Hex("#EBDDFF"),
+        bottomBarColor = Hex("#7D52BD")
     };
 
     private static SkyKeyframe CreateGalaxyEntranceKeyframe(float score) => new SkyKeyframe
@@ -432,7 +466,8 @@ public class SkyCycleManager : MonoBehaviour
         spaceVisibility = 0.90f,
         galaxyVisibility = 0.85f,
         lightIntensity = 0.86f,
-        lightColor = Hex("#EFE4FF")
+        lightColor = Hex("#EFE4FF"),
+        bottomBarColor = Hex("#6648AD")
     };
 
     private static SkyKeyframe CreateDeepGalaxiesKeyframe(float score) => new SkyKeyframe
@@ -448,7 +483,8 @@ public class SkyCycleManager : MonoBehaviour
         spaceVisibility = 0.80f,
         galaxyVisibility = 1.00f,
         lightIntensity = 0.87f,
-        lightColor = Hex("#F2E9FF")
+        lightColor = Hex("#F2E9FF"),
+        bottomBarColor = Hex("#583E9E")
     };
 
     private static SkyKeyframe CreateDawnKeyframe(float score) => new SkyKeyframe
@@ -464,7 +500,8 @@ public class SkyCycleManager : MonoBehaviour
         spaceVisibility = 0f,
         galaxyVisibility = 0f,
         lightIntensity = 0.94f,
-        lightColor = Hex("#FFF2EC")
+        lightColor = Hex("#FFF2EC"),
+        bottomBarColor = Hex("#F2C4D8")
     };
 
     private void CreateGradientBackdrop()
@@ -488,6 +525,98 @@ public class SkyCycleManager : MonoBehaviour
         gradientRenderer.sprite = gradientSprite;
         gradientRenderer.sortingOrder = -100;
         if (unlitMaterial != null) gradientRenderer.sharedMaterial = unlitMaterial;
+    }
+
+    private void CreateLaunchLandscape()
+    {
+        if (!useLaunchLandscape) return;
+
+        if (backgroundVideo != null)
+        {
+            backgroundVideo.Stop();
+            backgroundVideo.targetCameraAlpha = 0f;
+            backgroundVideo.enabled = false;
+        }
+
+        // BottomBar ekranin alt %20'sini kapladigi icin manzaranin alt kenarini
+        // BottomBar'in hemen ustune (hafifce altina girecek sekilde) hizaliyoruz.
+        float visibleBottomY = -camHalfHeight + (camHalfHeight * 2f * 0.16f);
+        float desiredWidth = (camHalfWidth * 2f) + 0.6f;
+        float maxWorldHeight = 0f;
+
+        if (launchMountainsSprite != null)
+        {
+            GameObject mtnGo = new GameObject("LaunchMountains");
+            mtnGo.transform.SetParent(transform);
+            SpriteRenderer sr = mtnGo.AddComponent<SpriteRenderer>();
+            sr.sprite = launchMountainsSprite;
+            sr.sortingOrder = -72;
+            if (unlitMaterial != null) sr.sharedMaterial = unlitMaterial;
+
+            float scale = desiredWidth / Mathf.Max(0.1f, launchMountainsSprite.bounds.size.x);
+            mtnGo.transform.localScale = new Vector3(scale, scale, 1f);
+
+            // Pivot merkezde olsa bile sprite'in en altini visibleBottomY'ye tam oturt
+            launchMountainsBaseY = visibleBottomY - (launchMountainsSprite.bounds.min.y * scale);
+            mtnGo.transform.position = new Vector3(0f, launchMountainsBaseY, 4.2f);
+            launchMountainsTransform = mtnGo.transform;
+            maxWorldHeight = Mathf.Max(maxWorldHeight, launchMountainsSprite.bounds.size.y * scale);
+        }
+
+        if (launchMeadowPinesSprite != null)
+        {
+            GameObject meadowGo = new GameObject("LaunchMeadowPines");
+            meadowGo.transform.SetParent(transform);
+            SpriteRenderer sr = meadowGo.AddComponent<SpriteRenderer>();
+            sr.sprite = launchMeadowPinesSprite;
+            sr.sortingOrder = -70;
+            if (unlitMaterial != null) sr.sharedMaterial = unlitMaterial;
+
+            float scale = desiredWidth / Mathf.Max(0.1f, launchMeadowPinesSprite.bounds.size.x);
+            meadowGo.transform.localScale = new Vector3(scale, scale, 1f);
+
+            launchMeadowBaseY = visibleBottomY - (launchMeadowPinesSprite.bounds.min.y * scale);
+            meadowGo.transform.position = new Vector3(0f, launchMeadowBaseY, 4.0f);
+            launchMeadowTransform = meadowGo.transform;
+            maxWorldHeight = Mathf.Max(maxWorldHeight, launchMeadowPinesSprite.bounds.size.y * scale);
+        }
+
+        launchExitTravel = Mathf.Max(camHalfHeight * 1.9f, maxWorldHeight + 1.5f);
+    }
+
+    private void UpdateLaunchLandscape(float totalScore)
+    {
+        if (!useLaunchLandscape) return;
+
+        float safeExit = Mathf.Max(60f, landscapeExitScore);
+
+        if (launchMeadowTransform != null)
+        {
+            float tMeadow = Mathf.Clamp01(totalScore / (safeExit * 0.72f));
+            bool visible = tMeadow < 1f;
+            if (launchMeadowTransform.gameObject.activeSelf != visible)
+                launchMeadowTransform.gameObject.SetActive(visible);
+
+            if (visible)
+            {
+                float y = launchMeadowBaseY - (tMeadow * launchExitTravel);
+                launchMeadowTransform.position = new Vector3(0f, y, 4.0f);
+            }
+        }
+
+        if (launchMountainsTransform != null)
+        {
+            float tMtn = Mathf.Clamp01(totalScore / safeExit);
+            bool visible = tMtn < 1f;
+            if (launchMountainsTransform.gameObject.activeSelf != visible)
+                launchMountainsTransform.gameObject.SetActive(visible);
+
+            if (visible)
+            {
+                float y = launchMountainsBaseY - (tMtn * launchExitTravel);
+                launchMountainsTransform.position = new Vector3(0f, y, 4.2f);
+            }
+        }
     }
 
     private void CreateClouds()
@@ -720,15 +849,18 @@ public class SkyCycleManager : MonoBehaviour
 
         SkyKeyframe state = EvaluateKeyframes(mappedScore);
 
-        // Ilk oyunda orman videosunun yumusakca kaybolup gokyuzu gradyaninin gorunur olmasi
+        // Baslangic manzarasi aciksa gokyuzu ve bulutlar 0 skordan itibaren tam gorunur;
+        // orman videosu yerine Aya Seyahat stili parallax daglar ve cayir kullanilir.
         float overlayAlpha = 1f;
-        if (totalScore < forestFadeEndScore)
+        if (!useLaunchLandscape && totalScore < forestFadeEndScore)
         {
             overlayAlpha = Mathf.SmoothStep(0f, 1f, (totalScore - forestFadeStartScore) / Mathf.Max(1f, forestFadeEndScore - forestFadeStartScore));
         }
 
+        UpdateLaunchLandscape(totalScore);
+
         // Video player saydamligi ve performans icin tamamen kapandiginda duraklatma
-        if (backgroundVideo != null)
+        if (!useLaunchLandscape && backgroundVideo != null)
         {
             float targetVideoAlpha = Mathf.Lerp(initialVideoAlpha, 0f, overlayAlpha);
             backgroundVideo.targetCameraAlpha = targetVideoAlpha;
@@ -749,7 +881,7 @@ public class SkyCycleManager : MonoBehaviour
 
         UpdateGradientTexture(state.topColor, state.midColor, state.bottomColor, overlayAlpha, immediate);
 
-        float firstCycleReveal = (totalScore < forestFadeEndScore) ? overlayAlpha : 1f;
+        float firstCycleReveal = (!useLaunchLandscape && totalScore < forestFadeEndScore) ? overlayAlpha : 1f;
         currentCloudAlpha = state.cloudAlpha * firstCycleReveal;
         currentCloudColor = state.cloudColor;
         currentStarVisibility = state.starVisibility * firstCycleReveal;
@@ -774,6 +906,15 @@ public class SkyCycleManager : MonoBehaviour
         {
             globalLight2D.intensity = state.lightIntensity;
             globalLight2D.color = state.lightColor;
+        }
+
+        if (bottomBarImage != null)
+        {
+            Color targetBarColor = state.bottomBarColor;
+            targetBarColor.a = bottomBarImage.color.a;
+            bottomBarImage.color = immediate
+                ? targetBarColor
+                : Color.Lerp(bottomBarImage.color, targetBarColor, Mathf.Clamp01(Time.deltaTime * bottomBarColorSmoothSpeed));
         }
 
         if (showZoneBanner)
@@ -806,7 +947,8 @@ public class SkyCycleManager : MonoBehaviour
                     spaceVisibility = Mathf.Lerp(a.spaceVisibility, b.spaceVisibility, t),
                     galaxyVisibility = Mathf.Lerp(a.galaxyVisibility, b.galaxyVisibility, t),
                     lightIntensity = Mathf.Lerp(a.lightIntensity, b.lightIntensity, t),
-                    lightColor = Color.Lerp(a.lightColor, b.lightColor, t)
+                    lightColor = Color.Lerp(a.lightColor, b.lightColor, t),
+                    bottomBarColor = Color.Lerp(a.bottomBarColor, b.bottomBarColor, t)
                 };
             }
         }
