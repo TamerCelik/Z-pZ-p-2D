@@ -50,11 +50,11 @@ public class PlatformSpawner : MonoBehaviour
     [Tooltip("Can ikonu sprite'ı")]
     public Sprite heartSprite;
     [Range(0f, 1f)]
-    [Tooltip("1000 skordan sonra platformda can çıkma olasılığı (%5)")]
-    public float heartSpawnChance = 0.05f;
+    [Tooltip("1000 skordan sonra platformda can çıkma olasılığı (%1.5)")]
+    public float heartSpawnChance = 0.015f;
     [Tooltip("İki can arasında minimum platform sayısı")]
-    public int minPlatformsBetweenHearts = 7;
-    private int platformsSinceLastHeart = 10;
+    public int minPlatformsBetweenHearts = 20;
+    private int platformsSinceLastHeart = 20;
 
     private GameObject lastSpawnedPlatform;
     private float nextSpawnDistance = 1.7f;
