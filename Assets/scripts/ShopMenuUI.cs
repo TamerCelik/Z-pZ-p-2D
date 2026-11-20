@@ -43,6 +43,8 @@ public class ShopMenuUI : MonoBehaviour
     private float previewTimer;
     private int previewFrameIndex;
     private Coroutine statusFeedbackCoroutine;
+    private SelfieFaceStudio selfieStudio;
+    private Image[] cardFaceOverlays;
 
     private static readonly Color SelectedBtnColor = new Color(0.13f, 0.77f, 0.42f, 1f);
     private static readonly Color UnlockedBtnColor = new Color(0.20f, 0.65f, 0.96f, 1f);
@@ -65,7 +67,51 @@ public class ShopMenuUI : MonoBehaviour
             shopPanel.SetActive(false);
 
         BindSlotButtons();
+        InitializeSelfieStudio();
         RefreshUI();
+    }
+
+    private void InitializeSelfieStudio()
+    {
+        if (shopPanel == null) return;
+
+        selfieStudio = GetComponent<SelfieFaceStudio>();
+        if (selfieStudio == null) selfieStudio = gameObject.AddComponent<SelfieFaceStudio>();
+
+        TMP_FontAsset font = statusText != null ? statusText.font : (shopBalanceText != null ? shopBalanceText.font : null);
+        Material fontMat = statusText != null ? statusText.fontSharedMaterial : (shopBalanceText != null ? shopBalanceText.fontSharedMaterial : null);
+        selfieStudio.Initialize(this, shopPanel, font, fontMat);
+
+        // Mağaza karakter kartlarına Koca Kafa selfie önizleme katmanlarını hazırla
+        if (cardSlots != null)
+        {
+            cardFaceOverlays = new Image[cardSlots.Length];
+            for (int i = 0; i < cardSlots.Length; i++)
+            {
+                ShopCardSlot slot = cardSlots[i];
+                if (slot == null || slot.previewImage == null) continue;
+
+                GameObject ov = new GameObject("SelfieFacePreviewOverlay", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+                ov.transform.SetParent(slot.previewImage.transform, false);
+                RectTransform rt = ov.GetComponent<RectTransform>();
+                rt.anchorMin = new Vector2(0.5f, 0.5f);
+                rt.anchorMax = new Vector2(0.5f, 0.5f);
+                rt.anchoredPosition = new Vector2(0f, 12f);
+                rt.sizeDelta = new Vector2(39f, 39f);
+
+                Image img = ov.GetComponent<Image>();
+                img.preserveAspect = true;
+                img.raycastTarget = false;
+                ov.SetActive(false);
+                cardFaceOverlays[i] = img;
+            }
+        }
+    }
+
+    public void ShowExternalStatus(string message, Color color, float soundPitch)
+    {
+        SetStatusMessage(message, color);
+        PlayUiSound(soundPitch, 0.45f);
     }
 
     private void OnEnable()
@@ -86,6 +132,8 @@ public class ShopMenuUI : MonoBehaviour
 
         if (Input.GetKeyDown(KeyCode.Escape))
         {
+            if (selfieStudio != null && selfieStudio.IsStudioOpen)
+                return;
             CloseShop();
             return;
         }
@@ -105,6 +153,10 @@ public class ShopMenuUI : MonoBehaviour
 
     public void CloseShop()
     {
+        if (selfieStudio != null)
+        {
+            selfieStudio.CloseStudio();
+        }
         if (shopPanel != null)
         {
             shopPanel.SetActive(false);
@@ -213,6 +265,19 @@ public class ShopMenuUI : MonoBehaviour
                     ? "SECILI"
                     : (unlocked ? "SEC" : (affordable ? entry.Price + " AL" : entry.Price + " COIN"));
             }
+
+            if (cardFaceOverlays != null && i < cardFaceOverlays.Length && cardFaceOverlays[i] != null)
+            {
+                bool showFace = unlocked && CharacterShopData.IsCustomFaceEnabled();
+                Sprite faceSprite = showFace ? CharacterShopData.LoadCustomFaceSprite() : null;
+                cardFaceOverlays[i].sprite = faceSprite;
+                cardFaceOverlays[i].gameObject.SetActive(showFace && faceSprite != null);
+            }
+        }
+
+        if (selfieStudio != null)
+        {
+            selfieStudio.RefreshBannerUI();
         }
     }
 

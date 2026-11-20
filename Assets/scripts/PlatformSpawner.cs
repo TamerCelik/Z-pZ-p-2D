@@ -350,44 +350,79 @@ public class PlatformSpawner : MonoBehaviour
     }
 
     [Header("Güçlendirmeler (Kalkan & Roket)")]
-    [SerializeField] private float powerUpSpawnChance = 0.09f;
-    [SerializeField] private int minPlatformsBetweenPowerUps = 13;
-    [SerializeField] private float powerUpMinScore = 60f;
-    private int platformsSinceLastPowerUp = 8;
+    [SerializeField] private float rocketSpawnChance = 0.036f;
+    [SerializeField] private int minPlatformsBetweenRockets = 22;
+    [SerializeField] private float rocketMinScore = 120f;
+    private int platformsSinceLastRocket = 10;
+
+    [SerializeField] private float shieldSpawnChance = 0.035f;
+    [SerializeField] private int minPlatformsBetweenShields = 26;
+    [SerializeField] private float shieldMinScore = 150f;
+    private int platformsSinceLastShield = 12;
+
+    [SerializeField] private float superFeetSpawnChance = 0.06f;
+    [SerializeField] private int minPlatformsBetweenSuperFeet = 18;
+    [SerializeField] private float superFeetMinScore = 80f;
+    private int platformsSinceLastSuperFeet = 12;
 
     private bool TrySpawnPlatformPowerUp(GameObject platform, bool platformHasHeart)
     {
-        if (platform == null || platformHasHeart || GameManager.currentScore < powerUpMinScore)
+        if (platform == null || platformHasHeart)
         {
-            platformsSinceLastPowerUp++;
+            platformsSinceLastRocket++;
+            platformsSinceLastShield++;
+            platformsSinceLastSuperFeet++;
             return false;
         }
 
-        if (platformsSinceLastPowerUp < minPlatformsBetweenPowerUps)
-        {
-            platformsSinceLastPowerUp++;
-            return false;
-        }
-
-        if (Random.value >= powerUpSpawnChance)
-        {
-            platformsSinceLastPowerUp++;
-            return false;
-        }
-
-        platformsSinceLastPowerUp = 0;
-
+        bool isRocketBoosting = GameManager.Instance != null && GameManager.Instance.IsRocketBoosting;
         bool playerHasShield = GameManager.Instance != null && GameManager.Instance.HasShield;
-        PowerUpType chosenType;
-        if (playerHasShield)
-        {
-            chosenType = PowerUpType.Rocket;
-        }
-        else
-        {
-            chosenType = (Random.value < 0.58f) ? PowerUpType.Shield : PowerUpType.Rocket;
-        }
+        bool hasSuperFeet = GameManager.Instance != null && GameManager.Instance.IsSuperFeetActive;
 
+        // 1. Kuş Ayağı (2 Platform Zıplama + İçinden Geçme)
+        if (!hasSuperFeet
+            && GameManager.currentScore >= superFeetMinScore
+            && platformsSinceLastSuperFeet >= minPlatformsBetweenSuperFeet
+            && Random.value < superFeetSpawnChance)
+        {
+            platformsSinceLastSuperFeet = 0;
+            platformsSinceLastRocket++;
+            platformsSinceLastShield++;
+            SpawnPowerUpOnPlatform(platform, PowerUpType.SuperFeet);
+            return true;
+        }
+        platformsSinceLastSuperFeet++;
+
+        // 2. Roket kontrolü
+        if (!isRocketBoosting
+            && GameManager.currentScore >= rocketMinScore
+            && platformsSinceLastRocket >= minPlatformsBetweenRockets
+            && Random.value < rocketSpawnChance)
+        {
+            platformsSinceLastRocket = 0;
+            platformsSinceLastShield++;
+            SpawnPowerUpOnPlatform(platform, PowerUpType.Rocket);
+            return true;
+        }
+        platformsSinceLastRocket++;
+
+        // 3. Kalkan kontrolü
+        if (!playerHasShield
+            && GameManager.currentScore >= shieldMinScore
+            && platformsSinceLastShield >= minPlatformsBetweenShields
+            && Random.value < shieldSpawnChance)
+        {
+            platformsSinceLastShield = 0;
+            SpawnPowerUpOnPlatform(platform, PowerUpType.Shield);
+            return true;
+        }
+        platformsSinceLastShield++;
+
+        return false;
+    }
+
+    private void SpawnPowerUpOnPlatform(GameObject platform, PowerUpType chosenType)
+    {
         Vector3 pScale = platform.transform.lossyScale;
         float worldX = Random.Range(-0.26f, 0.26f);
         float worldY = 0.72f;
@@ -396,10 +431,12 @@ public class PlatformSpawner : MonoBehaviour
             worldY / Mathf.Max(0.01f, Mathf.Abs(pScale.y)),
             0f);
 
-        GameObject puObj = new GameObject(chosenType == PowerUpType.Shield ? "PowerUp_Shield" : "PowerUp_Rocket");
+        string goName = chosenType == PowerUpType.Shield
+            ? "PowerUp_Shield"
+            : (chosenType == PowerUpType.SuperFeet ? "PowerUp_SuperFeet" : "PowerUp_Rocket");
+        GameObject puObj = new GameObject(goName);
         PowerUpPickup pickup = puObj.AddComponent<PowerUpPickup>();
         pickup.Configure(chosenType, platform.transform, localOffset);
-        return true;
     }
 
     [Header("Coin Meyve Ayarları")]
