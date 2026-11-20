@@ -61,6 +61,23 @@ public class GameManager : MonoBehaviour
     private AudioSource coinAudioSource;
     private Coroutine coinPunchCoroutine;
 
+    [Header("Güçlendirmeler (Kalkan & Roket)")]
+    public float rocketBoostDuration = 3.2f;
+    public float rocketSpeedMultiplier = 3.1f;
+    public float rocketTargetY = 1.15f;
+
+    private bool hasShield = false;
+    private bool isRocketBoosting = false;
+    private float rocketTimer = 0f;
+    private float postRocketGraceTimer = 0f;
+    private GameObject shieldVisualObj;
+    private SpriteRenderer shieldVisualRenderer;
+    private GameObject rocketFlameObj;
+    private SpriteRenderer rocketFlameRenderer;
+
+    public bool HasShield => hasShield;
+    public bool IsRocketBoosting => isRocketBoosting;
+
     void Awake()
     {
         Instance = this;
@@ -122,13 +139,36 @@ public class GameManager : MonoBehaviour
 
         if (isGameActive && !isPaused)
         {
-            score += Time.deltaTime * 10;
+            if (postRocketGraceTimer > 0f)
+            {
+                postRocketGraceTimer -= Time.deltaTime;
+            }
+
+            // 1000 puana kadar temel platform hızını pürüzsüzce maksimumHiz'a artır
+            float hizOrani = Mathf.Clamp01(score / maxHizSkoru);
+            float baseSpeed = Mathf.Lerp(baslangicHizi, maksimumHiz, hizOrani);
+
+            if (isRocketBoosting)
+            {
+                rocketTimer -= Time.deltaTime;
+                score += Time.deltaTime * 42f;
+                globalPlatformSpeed = baseSpeed * rocketSpeedMultiplier;
+                UpdateRocketVisuals();
+
+                if (rocketTimer <= 0f)
+                {
+                    EndRocketBoost(baseSpeed);
+                }
+            }
+            else
+            {
+                score += Time.deltaTime * 10f;
+                globalPlatformSpeed = baseSpeed;
+            }
+
             currentScore = score;
             if (scoreText != null) scoreText.text = "SKOR: " + (int)score;
-
-            // 1000 puana kadar platform hızını pürüzsüzce maksimumHiz'a artır
-            float hizOrani = Mathf.Clamp01(score / maxHizSkoru);
-            globalPlatformSpeed = Mathf.Lerp(baslangicHizi, maksimumHiz, hizOrani);
+            UpdateShieldVisuals();
         }
     }
 
@@ -236,9 +276,184 @@ public class GameManager : MonoBehaviour
 #endif
     }
 
+    public void ActivateShield()
+    {
+        hasShield = true;
+
+        if (canKazanmaSesi != null)
+        {
+            if (audioSource == null) audioSource = GetComponent<AudioSource>();
+            if (audioSource == null) audioSource = gameObject.AddComponent<AudioSource>();
+            audioSource.pitch = 1.18f;
+            audioSource.PlayOneShot(canKazanmaSesi, 0.7f);
+            audioSource.pitch = 1f;
+        }
+
+        EnsureShieldVisual();
+        if (shieldVisualObj != null) shieldVisualObj.SetActive(true);
+    }
+
+    public void ActivateRocketBoost()
+    {
+        isRocketBoosting = true;
+        rocketTimer = Mathf.Max(rocketTimer, rocketBoostDuration);
+
+        if (canKazanmaSesi != null)
+        {
+            if (audioSource == null) audioSource = GetComponent<AudioSource>();
+            if (audioSource == null) audioSource = gameObject.AddComponent<AudioSource>();
+            audioSource.pitch = 1.32f;
+            audioSource.PlayOneShot(canKazanmaSesi, 0.8f);
+            audioSource.pitch = 1f;
+        }
+
+        if (player != null)
+        {
+            player.transform.SetParent(null);
+            Rigidbody2D rb = player.GetComponent<Rigidbody2D>();
+            if (rb != null) rb.linearVelocity = Vector2.zero;
+        }
+
+        EnsureRocketVisual();
+        if (rocketFlameObj != null) rocketFlameObj.SetActive(true);
+    }
+
+    private void EndRocketBoost(float baseSpeed)
+    {
+        isRocketBoosting = false;
+        rocketTimer = 0f;
+        postRocketGraceTimer = 0.85f;
+        globalPlatformSpeed = baseSpeed;
+
+        if (rocketFlameObj != null) rocketFlameObj.SetActive(false);
+
+        // Roket bittiğinde karakterin tam altına güvenli bir iniş platformu oluştur
+        if (player != null)
+        {
+            PlatformSpawner spawner = Object.FindAnyObjectByType<PlatformSpawner>();
+            GameObject prefabToSpawn = spawner != null
+                ? spawner.SelectPlatformPrefabForCurrentCycle()
+                : null;
+            if (prefabToSpawn == null) prefabToSpawn = guvenliPlatformPrefab;
+
+            if (prefabToSpawn != null)
+            {
+                Vector2 landingPos = new Vector2(player.transform.position.x, player.transform.position.y - 0.58f);
+                Instantiate(prefabToSpawn, landingPos, Quaternion.identity);
+            }
+
+            Rigidbody2D rb = player.GetComponent<Rigidbody2D>();
+            if (rb != null)
+            {
+                rb.linearVelocity = new Vector2(rb.linearVelocity.x, -baseSpeed);
+            }
+        }
+    }
+
+    private void EnsureShieldVisual()
+    {
+        if (shieldVisualObj != null || player == null) return;
+
+        shieldVisualObj = new GameObject("ShieldBubbleAura");
+        shieldVisualObj.transform.SetParent(player.transform, false);
+        shieldVisualObj.transform.localPosition = Vector3.zero;
+        shieldVisualObj.transform.localScale = new Vector3(0.56f, 0.72f, 1f);
+
+        shieldVisualRenderer = shieldVisualObj.AddComponent<SpriteRenderer>();
+        shieldVisualRenderer.sprite = PowerUpPickup.GetShieldAuraSprite();
+        SpriteRenderer playerSr = player.GetComponent<SpriteRenderer>();
+        shieldVisualRenderer.sortingOrder = playerSr != null ? playerSr.sortingOrder + 2 : 12;
+    }
+
+    private void UpdateShieldVisuals()
+    {
+        if (!hasShield)
+        {
+            if (shieldVisualObj != null && shieldVisualObj.activeSelf)
+            {
+                shieldVisualObj.SetActive(false);
+            }
+            return;
+        }
+
+        EnsureShieldVisual();
+        if (shieldVisualObj != null)
+        {
+            if (!shieldVisualObj.activeSelf) shieldVisualObj.SetActive(true);
+            float pulse = 1f + Mathf.Sin(Time.time * 4.5f) * 0.06f;
+            shieldVisualObj.transform.localScale = new Vector3(0.56f * pulse, 0.72f * pulse, 1f);
+            if (shieldVisualRenderer != null)
+            {
+                float alphaPulse = 0.85f + 0.15f * Mathf.Sin(Time.time * 6f);
+                shieldVisualRenderer.color = new Color(1f, 1f, 1f, alphaPulse);
+            }
+        }
+    }
+
+    private void EnsureRocketVisual()
+    {
+        if (rocketFlameObj != null || player == null) return;
+
+        rocketFlameObj = new GameObject("RocketExhaustFlame");
+        rocketFlameObj.transform.SetParent(player.transform, false);
+        rocketFlameObj.transform.localPosition = new Vector3(0f, -0.16f, 0f);
+        rocketFlameObj.transform.localScale = new Vector3(0.55f, 0.75f, 1f);
+
+        rocketFlameRenderer = rocketFlameObj.AddComponent<SpriteRenderer>();
+        rocketFlameRenderer.sprite = PowerUpPickup.GetRocketFlameSprite();
+        SpriteRenderer playerSr = player.GetComponent<SpriteRenderer>();
+        rocketFlameRenderer.sortingOrder = playerSr != null ? playerSr.sortingOrder - 1 : 4;
+    }
+
+    private void UpdateRocketVisuals()
+    {
+        EnsureRocketVisual();
+        if (rocketFlameObj != null)
+        {
+            if (!rocketFlameObj.activeSelf) rocketFlameObj.SetActive(true);
+            float flickerY = 0.68f + Mathf.Abs(Mathf.Sin(Time.time * 28f)) * 0.34f;
+            float flickerX = 0.50f + Mathf.Abs(Mathf.Cos(Time.time * 22f)) * 0.14f;
+            rocketFlameObj.transform.localScale = new Vector3(flickerX, flickerY, 1f);
+        }
+    }
+
     public void TakeDamage()
     {
         if (!isGameActive) return;
+
+        // Roket uçuşu sırasında veya roket iniş koruması aktifken hasar alınmaz
+        if (isRocketBoosting || postRocketGraceTimer > 0f)
+        {
+            if (player != null && respawnPoint != null && !isRocketBoosting)
+            {
+                player.transform.position = respawnPoint.position;
+                Rigidbody2D rb = player.GetComponent<Rigidbody2D>();
+                if (rb != null) rb.linearVelocity = Vector2.zero;
+                GuvenliPlatformOlustur();
+            }
+            return;
+        }
+
+        // Koruyucu Kalkan (Baloncuk) aktifse can azaltmadan kalkanı tüket ve karakteri kurtar!
+        if (hasShield)
+        {
+            hasShield = false;
+            if (shieldVisualObj != null) shieldVisualObj.SetActive(false);
+
+            if (player != null)
+            {
+                JumpDustEffect.SpawnJumpDust(player.transform.position);
+                if (respawnPoint != null)
+                {
+                    player.transform.SetParent(null);
+                    player.transform.position = respawnPoint.position;
+                    Rigidbody2D rb = player.GetComponent<Rigidbody2D>();
+                    if (rb != null) rb.linearVelocity = Vector2.zero;
+                }
+            }
+            GuvenliPlatformOlustur();
+            return;
+        }
 
         health--;
         UpdateHealthUI();

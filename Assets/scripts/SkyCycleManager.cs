@@ -128,6 +128,14 @@ public class SkyCycleManager : MonoBehaviour
     private readonly List<DriftingElement> clouds = new List<DriftingElement>();
     private readonly List<DriftingElement> stars = new List<DriftingElement>();
     private readonly List<DriftingElement> galaxies = new List<DriftingElement>();
+    private readonly List<DriftingElement> fireflies = new List<DriftingElement>();
+    private readonly List<DriftingElement> spaceMeteors = new List<DriftingElement>();
+
+    private SpriteRenderer playerAuraRenderer;
+    private Transform playerAuraTransform;
+    private float currentFireflyVisibility;
+    private float currentPlayerAuraAlpha;
+    private Color currentPlayerAuraColor;
 
     private SpriteRenderer moonRenderer;
     private Transform moonTransform;
@@ -174,6 +182,9 @@ public class SkyCycleManager : MonoBehaviour
         CreateClouds();
         CreateStars();
         CreateGalaxies();
+        CreateFireflies();
+        CreateSpaceMeteors();
+        CreatePlayerAura();
         CreateMoon();
         CreatePlanet();
         CreateShootingStar();
@@ -197,6 +208,9 @@ public class SkyCycleManager : MonoBehaviour
         UpdateClouds(dt);
         UpdateStars(dt);
         UpdateGalaxies(dt);
+        UpdateFireflies(dt);
+        UpdateSpaceMeteors(dt);
+        UpdatePlayerAura(dt);
         UpdateCelestialDrift(dt);
         UpdateShootingStar(dt);
         if (showZoneBanner)
@@ -888,6 +902,21 @@ public class SkyCycleManager : MonoBehaviour
         currentSpaceVisibility = state.spaceVisibility * firstCycleReveal;
         currentGalaxyVisibility = state.galaxyVisibility * firstCycleReveal;
 
+        // Aksam & Gece (420..1180) atesbocekleri gorunurlugu
+        float fireflyIn = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(410f, 560f, mappedScore));
+        float fireflyOut = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(1040f, 1200f, mappedScore));
+        currentFireflyVisibility = fireflyIn * fireflyOut * firstCycleReveal;
+
+        // Aksam/Gece/Uzay karakter parlama halesi (450+ skordan itibaren)
+        float auraIn = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(450f, 680f, mappedScore));
+        float auraOut = (useContinuousLoop && mappedScore > 1740f)
+            ? (1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(1740f, 1960f, mappedScore)))
+            : 1f;
+        currentPlayerAuraAlpha = auraIn * auraOut * 0.36f * firstCycleReveal;
+        Color warmLantern = Hex("#FFD888");
+        Color cosmicCyan = Hex("#9AE6FF");
+        currentPlayerAuraColor = Color.Lerp(warmLantern, cosmicCyan, currentSpaceVisibility);
+
         if (moonRenderer != null)
         {
             Color c = Color.white;
@@ -1126,13 +1155,297 @@ public class SkyCycleManager : MonoBehaviour
             return;
         }
 
-        if (currentStarVisibility < 0.65f) return;
+        if (currentStarVisibility < 0.45f) return;
 
         nextShootingStarTimer -= dt;
         if (nextShootingStarTimer <= 0f)
         {
             SpawnShootingStar();
         }
+    }
+
+    private void CreateFireflies()
+    {
+        Transform folder = new GameObject("SkyFireflies").transform;
+        folder.SetParent(transform);
+
+        Sprite glowDot = CreateFallbackStarSprite(false);
+        Color[] fireflyColors =
+        {
+            Hex("#FFE97D"),
+            Hex("#C8FF75"),
+            Hex("#FFD269")
+        };
+
+        const int count = 14;
+        for (int i = 0; i < count; i++)
+        {
+            GameObject obj = new GameObject($"Firefly_{i}");
+            obj.transform.SetParent(folder);
+
+            float x = Random.Range(-camHalfWidth * 0.9f, camHalfWidth * 0.9f);
+            float y = Random.Range(-camHalfHeight * 0.75f, camHalfHeight * 0.85f);
+            obj.transform.position = new Vector3(x, y, 3.8f);
+
+            float scale = Random.Range(0.32f, 0.54f);
+            obj.transform.localScale = new Vector3(scale, scale, 1f);
+
+            SpriteRenderer sr = obj.AddComponent<SpriteRenderer>();
+            sr.sprite = glowDot;
+            sr.sortingOrder = -60;
+            if (unlitMaterial != null) sr.sharedMaterial = unlitMaterial;
+            sr.color = Color.clear;
+
+            float dir = (i % 2 == 0) ? 1f : -1f;
+            fireflies.Add(new DriftingElement
+            {
+                transform = obj.transform,
+                renderer = sr,
+                baseScale = obj.transform.localScale,
+                baseTint = fireflyColors[i % fireflyColors.Length],
+                parallaxFactor = Random.Range(0.06f, 0.14f),
+                horizontalSpeed = dir * Random.Range(0.18f, 0.42f),
+                twinkleSpeed = Random.Range(2.2f, 4.6f),
+                twinklePhase = Random.Range(0f, Mathf.PI * 2f),
+                maxAlpha = Random.Range(0.70f, 0.96f)
+            });
+        }
+    }
+
+    private void UpdateFireflies(float dt)
+    {
+        float fallBase = Mathf.Max(0f, GameManager.globalPlatformSpeed);
+        float wrapX = camHalfWidth + 0.6f;
+        float wrapY = camHalfHeight + 0.8f;
+
+        for (int i = 0; i < fireflies.Count; i++)
+        {
+            DriftingElement el = fireflies[i];
+            if (currentFireflyVisibility <= 0.004f)
+            {
+                if (el.renderer.color.a > 0f) el.renderer.color = Color.clear;
+                continue;
+            }
+
+            Vector3 pos = el.transform.position;
+            float wave = Mathf.Sin(Time.time * (el.twinkleSpeed * 0.55f) + el.twinklePhase);
+            pos.x += (el.horizontalSpeed + wave * 0.22f) * dt;
+            pos.y += (Mathf.Cos(Time.time * 1.4f + el.twinklePhase) * 0.24f - fallBase * el.parallaxFactor) * dt;
+
+            if (pos.x > wrapX) pos.x = -wrapX;
+            else if (pos.x < -wrapX) pos.x = wrapX;
+
+            if (pos.y < -wrapY) pos.y = wrapY;
+            else if (pos.y > wrapY) pos.y = -wrapY;
+
+            el.transform.position = pos;
+
+            float glow = Mathf.Clamp01(0.25f + 0.75f * Mathf.Sin(Time.time * el.twinkleSpeed + el.twinklePhase));
+            Color c = el.baseTint;
+            c.a = currentFireflyVisibility * el.maxAlpha * glow;
+            el.renderer.color = c;
+
+            el.transform.localScale = el.baseScale * (0.82f + 0.32f * glow);
+        }
+    }
+
+    private void CreateSpaceMeteors()
+    {
+        Transform folder = new GameObject("SkySpaceMeteors").transform;
+        folder.SetParent(transform);
+
+        Sprite meteorSprite = CreateFallbackMeteorSprite(false);
+        Sprite satelliteSprite = CreateFallbackMeteorSprite(true);
+
+        const int count = 6;
+        for (int i = 0; i < count; i++)
+        {
+            bool isSatellite = (i == 0);
+            GameObject obj = new GameObject(isSatellite ? "SpaceSatellite" : $"SpaceMeteor_{i}");
+            obj.transform.SetParent(folder);
+
+            float x = Random.Range(-camHalfWidth * 0.85f, camHalfWidth * 0.85f);
+            float y = Mathf.Lerp(-camHalfHeight * 0.8f, camHalfHeight * 0.9f, (float)i / count);
+            obj.transform.position = new Vector3(x, y, 4.25f);
+
+            float scale = isSatellite ? 0.72f : Random.Range(0.48f, 0.82f);
+            obj.transform.localScale = new Vector3(scale, scale, 1f);
+
+            SpriteRenderer sr = obj.AddComponent<SpriteRenderer>();
+            sr.sprite = isSatellite ? satelliteSprite : meteorSprite;
+            sr.sortingOrder = -84;
+            if (unlitMaterial != null) sr.sharedMaterial = unlitMaterial;
+            sr.color = Color.clear;
+
+            float dir = (i % 2 == 0) ? 1f : -1f;
+            spaceMeteors.Add(new DriftingElement
+            {
+                transform = obj.transform,
+                renderer = sr,
+                baseScale = obj.transform.localScale,
+                baseTint = isSatellite ? Hex("#D8EEFF") : Hex("#C6B8D8"),
+                parallaxFactor = Random.Range(0.04f, 0.09f),
+                horizontalSpeed = dir * Random.Range(0.08f, 0.22f),
+                rotationSpeed = dir * (isSatellite ? 12f : Random.Range(18f, 42f)),
+                maxAlpha = isSatellite ? 0.82f : Random.Range(0.55f, 0.78f)
+            });
+        }
+    }
+
+    private void UpdateSpaceMeteors(float dt)
+    {
+        float fallBase = Mathf.Max(0.4f, GameManager.globalPlatformSpeed);
+        float wrapX = camHalfWidth + 1.4f;
+        float wrapY = camHalfHeight + 1.6f;
+
+        for (int i = 0; i < spaceMeteors.Count; i++)
+        {
+            DriftingElement el = spaceMeteors[i];
+            if (currentSpaceVisibility <= 0.005f)
+            {
+                if (el.renderer.color.a > 0f) el.renderer.color = Color.clear;
+                continue;
+            }
+
+            Vector3 pos = el.transform.position;
+            pos.x += el.horizontalSpeed * dt;
+            pos.y -= fallBase * el.parallaxFactor * dt;
+
+            if (pos.x > wrapX) pos.x = -wrapX;
+            else if (pos.x < -wrapX) pos.x = wrapX;
+
+            if (pos.y < -wrapY)
+            {
+                pos.y = wrapY;
+                pos.x = Random.Range(-camHalfWidth * 0.85f, camHalfWidth * 0.85f);
+            }
+
+            el.transform.position = pos;
+            el.transform.Rotate(0f, 0f, el.rotationSpeed * dt);
+
+            Color c = el.baseTint;
+            c.a = currentSpaceVisibility * el.maxAlpha;
+            el.renderer.color = c;
+        }
+    }
+
+    private void CreatePlayerAura()
+    {
+        PlayerController pc = Object.FindFirstObjectByType<PlayerController>();
+        if (pc == null) return;
+
+        GameObject auraObj = new GameObject("PlayerAtmosphereAura");
+        auraObj.transform.SetParent(pc.transform, false);
+        auraObj.transform.localPosition = Vector3.zero;
+        auraObj.transform.localScale = new Vector3(0.85f, 1.05f, 1f);
+
+        playerAuraTransform = auraObj.transform;
+        playerAuraRenderer = auraObj.AddComponent<SpriteRenderer>();
+        playerAuraRenderer.sprite = CreateFallbackAuraSprite();
+        SpriteRenderer playerSr = pc.GetComponent<SpriteRenderer>();
+        playerAuraRenderer.sortingOrder = playerSr != null ? playerSr.sortingOrder - 1 : 1;
+        if (unlitMaterial != null) playerAuraRenderer.sharedMaterial = unlitMaterial;
+        playerAuraRenderer.color = Color.clear;
+    }
+
+    private void UpdatePlayerAura(float dt)
+    {
+        if (playerAuraRenderer == null)
+        {
+            if (currentPlayerAuraAlpha > 0.01f) CreatePlayerAura();
+            if (playerAuraRenderer == null) return;
+        }
+
+        if (currentPlayerAuraAlpha <= 0.003f)
+        {
+            if (playerAuraRenderer.color.a > 0f) playerAuraRenderer.color = Color.clear;
+            return;
+        }
+
+        float pulse = 0.92f + 0.08f * Mathf.Sin(Time.time * 3.2f);
+        playerAuraTransform.localScale = new Vector3(0.85f * pulse, 1.05f * pulse, 1f);
+        Color c = currentPlayerAuraColor;
+        c.a = currentPlayerAuraAlpha * pulse;
+        playerAuraRenderer.color = c;
+    }
+
+    private static Sprite CreateFallbackAuraSprite()
+    {
+        const int size = 32;
+        Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear };
+        Color[] cols = new Color[size * size];
+        float c = (size - 1) * 0.5f;
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float dist = Vector2.Distance(new Vector2(x, y), new Vector2(c, c)) / c;
+                float a = Mathf.Clamp01(1f - dist);
+                a = a * a;
+                cols[y * size + x] = new Color(1f, 1f, 1f, a);
+            }
+        }
+        tex.SetPixels(cols);
+        tex.Apply();
+        return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 24f);
+    }
+
+    private static Sprite CreateFallbackMeteorSprite(bool isSatellite)
+    {
+        const int size = 20;
+        Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false) { filterMode = FilterMode.Point };
+        Color[] cols = new Color[size * size];
+        float c = (size - 1) * 0.5f;
+
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float dx = x - c;
+                float dy = y - c;
+                Color px = Color.clear;
+
+                if (isSatellite)
+                {
+                    // Mini pixel satellite: central body + left/right solar panels
+                    if (Mathf.Abs(dx) <= 2.4f && Mathf.Abs(dy) <= 2.4f)
+                    {
+                        px = new Color(0.92f, 0.95f, 1f, 1f);
+                    }
+                    else if (Mathf.Abs(dy) <= 1.6f && Mathf.Abs(dx) >= 3.2f && Mathf.Abs(dx) <= 8.2f)
+                    {
+                        px = new Color(0.35f, 0.72f, 0.98f, 0.95f);
+                    }
+                    else if (Mathf.Abs(dy) <= 0.7f && Mathf.Abs(dx) < 3.4f)
+                    {
+                        px = new Color(0.6f, 0.65f, 0.75f, 1f);
+                    }
+                }
+                else
+                {
+                    // Rocky pixel asteroid with craters
+                    float angle = Mathf.Atan2(dy, dx);
+                    float radius = 6.8f + 1.1f * Mathf.Sin(angle * 3f) + 0.7f * Mathf.Cos(angle * 5f);
+                    float dist = Mathf.Sqrt(dx * dx + dy * dy);
+                    if (dist <= radius)
+                    {
+                        bool isRim = dist > radius - 1.3f;
+                        bool isCrater = Vector2.Distance(new Vector2(dx, dy), new Vector2(-1.8f, 1.4f)) < 1.8f ||
+                                        Vector2.Distance(new Vector2(dx, dy), new Vector2(2.2f, -1.6f)) < 1.4f;
+                        if (isRim || isCrater)
+                            px = new Color(0.38f, 0.34f, 0.48f, 1f);
+                        else
+                            px = (dx + dy > 0f) ? new Color(0.72f, 0.68f, 0.82f, 1f) : new Color(0.54f, 0.50f, 0.64f, 1f);
+                    }
+                }
+
+                cols[y * size + x] = px;
+            }
+        }
+
+        tex.SetPixels(cols);
+        tex.Apply();
+        return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 28f);
     }
 
     private void SpawnShootingStar()

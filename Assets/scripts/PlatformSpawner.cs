@@ -251,10 +251,11 @@ public class PlatformSpawner : MonoBehaviour
             platformsSinceLastHeart++;
         }
 
-        // İlk doğuş platformu dışında belirli aralıklarla coin meyvesi üret
+        // İlk doğuş platformu dışında güçlendirme (Kalkan / Roket) veya coin meyvesi üret
         if (!isFirstPlatform)
         {
-            TrySpawnPlatformCoin(lastSpawnedPlatform, spawnedHeart);
+            bool spawnedPowerUp = TrySpawnPlatformPowerUp(lastSpawnedPlatform, spawnedHeart);
+            TrySpawnPlatformCoin(lastSpawnedPlatform, spawnedHeart || spawnedPowerUp);
         }
 
         // Bir sonraki platform için güvenli ve rahat dikey mesafe belirle (1.6f - 2.1f)
@@ -346,6 +347,59 @@ public class PlatformSpawner : MonoBehaviour
             if (pool[i] != null) return pool[i];
         }
         return null;
+    }
+
+    [Header("Güçlendirmeler (Kalkan & Roket)")]
+    [SerializeField] private float powerUpSpawnChance = 0.09f;
+    [SerializeField] private int minPlatformsBetweenPowerUps = 13;
+    [SerializeField] private float powerUpMinScore = 60f;
+    private int platformsSinceLastPowerUp = 8;
+
+    private bool TrySpawnPlatformPowerUp(GameObject platform, bool platformHasHeart)
+    {
+        if (platform == null || platformHasHeart || GameManager.currentScore < powerUpMinScore)
+        {
+            platformsSinceLastPowerUp++;
+            return false;
+        }
+
+        if (platformsSinceLastPowerUp < minPlatformsBetweenPowerUps)
+        {
+            platformsSinceLastPowerUp++;
+            return false;
+        }
+
+        if (Random.value >= powerUpSpawnChance)
+        {
+            platformsSinceLastPowerUp++;
+            return false;
+        }
+
+        platformsSinceLastPowerUp = 0;
+
+        bool playerHasShield = GameManager.Instance != null && GameManager.Instance.HasShield;
+        PowerUpType chosenType;
+        if (playerHasShield)
+        {
+            chosenType = PowerUpType.Rocket;
+        }
+        else
+        {
+            chosenType = (Random.value < 0.58f) ? PowerUpType.Shield : PowerUpType.Rocket;
+        }
+
+        Vector3 pScale = platform.transform.lossyScale;
+        float worldX = Random.Range(-0.26f, 0.26f);
+        float worldY = 0.72f;
+        Vector3 localOffset = new Vector3(
+            worldX / Mathf.Max(0.01f, Mathf.Abs(pScale.x)),
+            worldY / Mathf.Max(0.01f, Mathf.Abs(pScale.y)),
+            0f);
+
+        GameObject puObj = new GameObject(chosenType == PowerUpType.Shield ? "PowerUp_Shield" : "PowerUp_Rocket");
+        PowerUpPickup pickup = puObj.AddComponent<PowerUpPickup>();
+        pickup.Configure(chosenType, platform.transform, localOffset);
+        return true;
     }
 
     [Header("Coin Meyve Ayarları")]

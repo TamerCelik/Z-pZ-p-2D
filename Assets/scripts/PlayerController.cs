@@ -150,7 +150,8 @@ public class PlayerController : MonoBehaviour
         float speedRatio = (GameManager.globalPlatformSpeed > 0f) ? (GameManager.globalPlatformSpeed / 1.7f) : 1f;
         speedRatio = Mathf.Clamp(speedRatio, 1f, 1.41f);
 
-        rb.gravityScale = baseGravityScale * speedRatio;
+        bool rocketActive = GameManager.Instance != null && GameManager.Instance.IsRocketBoosting;
+        rb.gravityScale = rocketActive ? 0f : (baseGravityScale * speedRatio);
 
         // 1. HAREKET (Tuşlar, Klavye veya Jiroskop Eğim)
         float moveInput = 0f;
@@ -170,7 +171,19 @@ public class PlayerController : MonoBehaviour
         }
 
         float currentMoveSpeed = moveSpeed * Mathf.Sqrt(speedRatio);
-        rb.linearVelocity = new Vector2(moveInput * currentMoveSpeed, rb.linearVelocity.y);
+
+        if (rocketActive)
+        {
+            if (transform.parent != null) transform.SetParent(null);
+            float targetY = GameManager.Instance.rocketTargetY;
+            float newY = Mathf.Lerp(transform.position.y, targetY, Mathf.Clamp01(Time.deltaTime * 6.5f));
+            transform.position = new Vector3(transform.position.x, newY, transform.position.z);
+            rb.linearVelocity = new Vector2(moveInput * currentMoveSpeed * 1.15f, 0f);
+        }
+        else
+        {
+            rb.linearVelocity = new Vector2(moveInput * currentMoveSpeed, rb.linearVelocity.y);
+        }
 
         // 2. YÖN ÇEVİRME
         if (moveInput > 0)
@@ -271,6 +284,11 @@ public class PlayerController : MonoBehaviour
 
     void OnCollisionEnter2D(Collision2D collision)
     {
+        if (GameManager.Instance != null && GameManager.Instance.IsRocketBoosting)
+        {
+            return;
+        }
+
         if (collision.gameObject.CompareTag("Platform"))
         {
             transform.SetParent(collision.transform);
