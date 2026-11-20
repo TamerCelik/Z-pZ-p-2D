@@ -58,6 +58,8 @@ public class CharacterSkinApplier : MonoBehaviour
                 anim.Update(0f);
             }
         }
+
+        // 750 Kirazlık Selfie Stüdyosu açıksa ve aktifse oyuncunun Koca Kafa yüzünü karaktere entegre et
+        CustomFaceHelper.ApplyBigHeadToPlayer(transform, selectedId);
     }
 }
-

@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using UnityEngine;
 
 /// <summary>
@@ -10,6 +11,14 @@ public static class CharacterShopData
     public const string TotalCoinsKey = "TotalCoins";
     public const string SelectedCharacterKey = "SelectedCharacterId";
     private const string UnlockedPrefix = "UnlockedChar_";
+
+    public const int SelfieStudioPrice = 200;
+    private const string SelfieStudioUnlockedKey = "SelfieStudioUnlocked";
+    private const string CustomFaceEnabledKey = "CustomFaceEnabled";
+    private const string CustomFaceFileName = "custom_selfie_face.png";
+
+    private static Texture2D cachedCustomFaceTex;
+    private static Sprite cachedCustomFaceSprite;
 
     public const string PinkManId = "pink_man";
     public const string NinjaFrogId = "ninja_frog";
@@ -136,5 +145,117 @@ public static class CharacterShopData
         OnShopStateChanged?.Invoke();
         return true;
     }
-}
 
+    #region 750 Coin Selfie Yüz Stüdyosu Kalıcı Verileri
+    public static string CustomFaceFilePath => Path.Combine(Application.persistentDataPath, CustomFaceFileName);
+
+    public static bool IsSelfieStudioUnlocked()
+    {
+        return PlayerPrefs.GetInt(SelfieStudioUnlockedKey, 0) == 1;
+    }
+
+    public static bool TryUnlockSelfieStudio(out bool newlyUnlocked, out bool insufficientFunds, out int remainingCoins)
+    {
+        newlyUnlocked = false;
+        insufficientFunds = false;
+        remainingCoins = GetCoins();
+
+        if (IsSelfieStudioUnlocked())
+            return true;
+
+        if (remainingCoins < SelfieStudioPrice)
+        {
+            insufficientFunds = true;
+            return false;
+        }
+
+        remainingCoins -= SelfieStudioPrice;
+        PlayerPrefs.SetInt(TotalCoinsKey, remainingCoins);
+        PlayerPrefs.SetInt(SelfieStudioUnlockedKey, 1);
+        PlayerPrefs.Save();
+
+        newlyUnlocked = true;
+        OnShopStateChanged?.Invoke();
+        return true;
+    }
+
+    public static bool HasSavedCustomFace()
+    {
+        return File.Exists(CustomFaceFilePath);
+    }
+
+    public static bool IsCustomFaceEnabled()
+    {
+        return IsSelfieStudioUnlocked()
+            && PlayerPrefs.GetInt(CustomFaceEnabledKey, 0) == 1
+            && HasSavedCustomFace();
+    }
+
+    public static void SetCustomFaceEnabled(bool enabled)
+    {
+        PlayerPrefs.SetInt(CustomFaceEnabledKey, (enabled && HasSavedCustomFace()) ? 1 : 0);
+        PlayerPrefs.Save();
+        OnShopStateChanged?.Invoke();
+    }
+
+    public static void SaveCustomFacePng(byte[] pngBytes)
+    {
+        if (pngBytes == null || pngBytes.Length == 0) return;
+
+        File.WriteAllBytes(CustomFaceFilePath, pngBytes);
+
+        // Önbelleği sıfırla ki yeni fotoğraf anında yüklensin
+        if (cachedCustomFaceSprite != null)
+        {
+            UnityEngine.Object.Destroy(cachedCustomFaceSprite);
+            cachedCustomFaceSprite = null;
+        }
+        if (cachedCustomFaceTex != null)
+        {
+            UnityEngine.Object.Destroy(cachedCustomFaceTex);
+            cachedCustomFaceTex = null;
+        }
+
+        PlayerPrefs.SetInt(CustomFaceEnabledKey, 1);
+        PlayerPrefs.Save();
+        OnShopStateChanged?.Invoke();
+    }
+
+    public static Sprite LoadCustomFaceSprite()
+    {
+        if (cachedCustomFaceSprite != null)
+            return cachedCustomFaceSprite;
+
+        if (!HasSavedCustomFace())
+            return null;
+
+        try
+        {
+            byte[] bytes = File.ReadAllBytes(CustomFaceFilePath);
+            Texture2D tex = new Texture2D(2, 2, TextureFormat.RGBA32, false)
+            {
+                filterMode = FilterMode.Bilinear,
+                wrapMode = TextureWrapMode.Clamp
+            };
+
+            if (!tex.LoadImage(bytes))
+            {
+                UnityEngine.Object.Destroy(tex);
+                return null;
+            }
+
+            cachedCustomFaceTex = tex;
+            cachedCustomFaceSprite = Sprite.Create(
+                tex,
+                new Rect(0, 0, tex.width, tex.height),
+                new Vector2(0.5f, 0.5f),
+                256f);
+            return cachedCustomFaceSprite;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+    #endregion
+}

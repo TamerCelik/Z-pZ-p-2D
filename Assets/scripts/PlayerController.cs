@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
@@ -61,11 +62,28 @@ public class PlayerController : MonoBehaviour
     // Mobil girdiler için değişkenler
     private float mobileMoveInput = 0f;
     private bool mobileJumpRequested = false;
+    private PlatformMovement standingPlatform;
+    private Collider2D playerCollider;
+    private readonly HashSet<Collider2D> ignoredPassThroughPlatforms = new HashSet<Collider2D>();
+    private readonly List<Collider2D> tempCleanupList = new List<Collider2D>();
+
+    // Zıplama & iniş esneme (Squash & Stretch) animasyonu ve iz zamanlayıcısı
+    private float baseAbsScaleX = 1.8f;
+    private float baseScaleY = 1.42f;
+    private float facingSign = 1f;
+    private Vector2 visualStretch = Vector2.one;
+    private bool wasGroundedForSquash = true;
+    private float superTrailTimer = 0f;
 
     void Start()
     {
         rb = GetComponent<Rigidbody2D>();
+        playerCollider = GetComponent<Collider2D>();
         if (rb != null) baseGravityScale = rb.gravityScale;
+
+        baseAbsScaleX = Mathf.Abs(transform.localScale.x);
+        baseScaleY = transform.localScale.y;
+        facingSign = transform.localScale.x < 0f ? -1f : 1f;
 
         audioSource = GetComponent<AudioSource>();
 
@@ -172,6 +190,14 @@ public class PlayerController : MonoBehaviour
 
         float currentMoveSpeed = moveSpeed * Mathf.Sqrt(speedRatio);
 
+        // 4. ZEMİN KONTROLÜ & KAYAN PLATFORM TAKİBİ
+        bool superFeetActive = GameManager.Instance != null && GameManager.Instance.IsSuperFeetActive;
+        UpdatePassThroughPlatforms(superFeetActive && !rocketActive);
+
+        Collider2D groundHit = Physics2D.OverlapCircle(ayakNoktasi.position, ayakCapi, zeminKatmani);
+        yerdeMi = groundHit != null && !ignoredPassThroughPlatforms.Contains(groundHit);
+        standingPlatform = (yerdeMi && groundHit != null) ? groundHit.GetComponentInParent<PlatformMovement>() : null;
+
         if (rocketActive)
         {
             if (transform.parent != null) transform.SetParent(null);
@@ -182,17 +208,39 @@ public class PlayerController : MonoBehaviour
         }
         else
         {
-            rb.linearVelocity = new Vector2(moveInput * currentMoveSpeed, rb.linearVelocity.y);
+            // Karakter kayan platformun üzerindeyken platformun anlık yatay hızını doğrudan ekle
+            float platformCarryVx = (yerdeMi && standingPlatform != null && standingPlatform.isMovingHorizontal)
+                ? standingPlatform.CurrentHorizontalVelocity
+                : 0f;
+            rb.linearVelocity = new Vector2((moveInput * currentMoveSpeed) + platformCarryVx, rb.linearVelocity.y);
         }
 
-        // 2. YÖN ÇEVİRME
-        if (moveInput > 0)
+        // 2. YÖN ÇEVİRME & ZIPLAMA ESNEME (SQUASH & STRETCH) ANİMASYONU
+        if (moveInput > 0.01f) facingSign = 1f;
+        else if (moveInput < -0.01f) facingSign = -1f;
+
+        if (yerdeMi && !wasGroundedForSquash && rb.linearVelocity.y <= 0.1f)
         {
-            transform.localScale = new Vector3(Mathf.Abs(transform.localScale.x), transform.localScale.y, 1);
+            // Yere inişte tatlı ezilme (squash)
+            visualStretch = new Vector2(1.22f, 0.80f);
         }
-        else if (moveInput < 0)
+        wasGroundedForSquash = yerdeMi;
+
+        visualStretch = Vector2.Lerp(visualStretch, Vector2.one, Mathf.Clamp01(Time.deltaTime * 12f));
+        transform.localScale = new Vector3(
+            facingSign * baseAbsScaleX * visualStretch.x,
+            baseScaleY * visualStretch.y,
+            transform.localScale.z);
+
+        // Kuş ayağı ile yükselirken arkasından parıltılı rüzgar/yıldız izi bırak
+        if (superFeetActive && !rocketActive && rb.linearVelocity.y > 0.8f)
         {
-            transform.localScale = new Vector3(-Mathf.Abs(transform.localScale.x), transform.localScale.y, 1);
+            superTrailTimer -= Time.deltaTime;
+            if (superTrailTimer <= 0f)
+            {
+                superTrailTimer = 0.055f;
+                JumpDustEffect.SpawnSuperJumpTrail(ayakNoktasi != null ? ayakNoktasi.position : transform.position);
+            }
         }
 
         // 3. EKRAN SARMA (SCREEN WRAP - SOLDAN GİR SAĞDAN ÇIK / SAĞDAN GİR SOLDAN ÇIK)
@@ -205,8 +253,7 @@ public class PlayerController : MonoBehaviour
             transform.position = new Vector3(wrapThreshold - 0.1f, transform.position.y, transform.position.z);
         }
 
-        // 4. ZEMİN KONTROLÜ & TEK ZIPLAMA GÜVENCESİ
-        yerdeMi = Physics2D.OverlapCircle(ayakNoktasi.position, ayakCapi, zeminKatmani);
+        // 4. ZEMİN TOZU & TEK ZIPLAMA GÜVENCESİ
         JumpDustEffect.NotifyGroundState(ayakNoktasi.position, yerdeMi, rb.linearVelocity.y);
 
         // Karakter yere inip durduğunda veya aşağı düşerken zemine bastığında zıplama hakkı yenilenir
@@ -246,14 +293,101 @@ public class PlayerController : MonoBehaviour
 
             rb.linearVelocity = new Vector2(rb.linearVelocity.x, 0);
 
-            float currentJumpForce = jumpForce * Mathf.Sqrt(speedRatio);
+            bool isSuperJump = GameManager.Instance != null && GameManager.Instance.IsSuperFeetActive;
+            float superFeetMult = isSuperJump ? GameManager.Instance.superFeetJumpMultiplier : 1f;
+            float currentJumpForce = jumpForce * Mathf.Sqrt(speedRatio) * superFeetMult;
             rb.AddForce(Vector2.up * currentJumpForce, ForceMode2D.Impulse);
 
-            JumpDustEffect.SpawnJumpDust(ayakNoktasi != null ? ayakNoktasi.position : transform.position);
+            // Zıplama anında dikey uzama (stretch) animasyonu + partikül patlaması
+            Vector3 feetPos = ayakNoktasi != null ? ayakNoktasi.position : transform.position;
+            if (isSuperJump)
+            {
+                visualStretch = new Vector2(0.70f, 1.38f);
+                JumpDustEffect.SpawnSuperJumpBurst(feetPos);
+            }
+            else
+            {
+                visualStretch = new Vector2(0.80f, 1.24f);
+                JumpDustEffect.SpawnJumpDust(feetPos);
+            }
 
             if (audioSource != null && jumpSound != null)
             {
                 audioSource.PlayOneShot(jumpSound, ziplamaSesiSiddeti);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Kuş ayağı aktifken yukarı zıplarken (veya platformun içindeyken) platformların içinden
+    /// takılmadan geçmeyi, aşağı inerken ise üstlerine sağlamca konmayı sağlar.
+    /// </summary>
+    private void UpdatePassThroughPlatforms(bool enablePassThrough)
+    {
+        if (playerCollider == null) return;
+
+        if (!enablePassThrough)
+        {
+            if (ignoredPassThroughPlatforms.Count > 0)
+            {
+                foreach (Collider2D col in ignoredPassThroughPlatforms)
+                {
+                    if (col != null) Physics2D.IgnoreCollision(playerCollider, col, false);
+                }
+                ignoredPassThroughPlatforms.Clear();
+            }
+            return;
+        }
+
+        float playerBottomY = playerCollider.bounds.min.y;
+        bool rising = rb != null && rb.linearVelocity.y > 0.12f;
+
+        Collider2D[] nearby = Physics2D.OverlapCircleAll(transform.position, 2.8f, zeminKatmani);
+        for (int i = 0; i < nearby.Length; i++)
+        {
+            Collider2D pCol = nearby[i];
+            if (pCol == null || pCol == playerCollider) continue;
+
+            float platformTopY = pCol.bounds.max.y;
+            bool shouldPass = rising || (playerBottomY < platformTopY - 0.12f);
+
+            if (shouldPass)
+            {
+                if (!ignoredPassThroughPlatforms.Contains(pCol))
+                {
+                    Physics2D.IgnoreCollision(playerCollider, pCol, true);
+                    ignoredPassThroughPlatforms.Add(pCol);
+                }
+            }
+            else
+            {
+                if (ignoredPassThroughPlatforms.Contains(pCol))
+                {
+                    Physics2D.IgnoreCollision(playerCollider, pCol, false);
+                    ignoredPassThroughPlatforms.Remove(pCol);
+                }
+            }
+        }
+
+        // Yok olmuş veya uzaklaşmış platformları listeden temizle
+        if (ignoredPassThroughPlatforms.Count > 0)
+        {
+            tempCleanupList.Clear();
+            foreach (Collider2D col in ignoredPassThroughPlatforms)
+            {
+                if (col == null)
+                {
+                    tempCleanupList.Add(col);
+                }
+                else if (!rising && playerBottomY >= col.bounds.max.y - 0.10f)
+                {
+                    Physics2D.IgnoreCollision(playerCollider, col, false);
+                    tempCleanupList.Add(col);
+                }
+            }
+            for (int i = 0; i < tempCleanupList.Count; i++)
+            {
+                ignoredPassThroughPlatforms.Remove(tempCleanupList[i]);
             }
         }
     }
@@ -291,9 +425,7 @@ public class PlayerController : MonoBehaviour
 
         if (collision.gameObject.CompareTag("Platform"))
         {
-            transform.SetParent(collision.transform);
-
-            // Platforma temas edildiğinde zıplama hakkını tazelemeye izin ver
+            // Platforma temas edildiğinde zıplama hakkını tazelemeye izin ver (kayma takibi CurrentHorizontalVelocity ile yapılır)
             if (rb.linearVelocity.y <= 0.1f)
             {
                 canJump = true;
@@ -305,7 +437,11 @@ public class PlayerController : MonoBehaviour
     {
         if (collision.gameObject.CompareTag("Platform"))
         {
-            transform.SetParent(null);
+            PlatformMovement pm = collision.gameObject.GetComponent<PlatformMovement>();
+            if (pm != null && pm == standingPlatform)
+            {
+                standingPlatform = null;
+            }
         }
     }
 }

@@ -61,21 +61,33 @@ public class GameManager : MonoBehaviour
     private AudioSource coinAudioSource;
     private Coroutine coinPunchCoroutine;
 
-    [Header("Güçlendirmeler (Kalkan & Roket)")]
+    [Header("Güçlendirmeler (Kalkan, Roket & Kuş Ayağı)")]
+    [Tooltip("Koruyucu kalkanın aktif kalma süresi (saniye)")]
+    public float shieldDuration = 12f;
+    [Tooltip("Kuş ayağı (2 platform zıplama + içinden geçme) süresi (saniye)")]
+    public float superFeetDuration = 12f;
+    [Tooltip("Kuş ayağı aktifken zıplama kuvvet çarpanı (1.92 -> 2 tam platformu rahatça aşar)")]
+    public float superFeetJumpMultiplier = 1.92f;
     public float rocketBoostDuration = 3.2f;
     public float rocketSpeedMultiplier = 3.1f;
     public float rocketTargetY = 1.15f;
 
     private bool hasShield = false;
+    private float shieldTimer = 0f;
+    private bool hasSuperFeet = false;
+    private float superFeetTimer = 0f;
     private bool isRocketBoosting = false;
     private float rocketTimer = 0f;
     private float postRocketGraceTimer = 0f;
     private GameObject shieldVisualObj;
     private SpriteRenderer shieldVisualRenderer;
+    private GameObject superFeetVisualObj;
+    private SpriteRenderer superFeetVisualRenderer;
     private GameObject rocketFlameObj;
     private SpriteRenderer rocketFlameRenderer;
 
     public bool HasShield => hasShield;
+    public bool IsSuperFeetActive => hasSuperFeet;
     public bool IsRocketBoosting => isRocketBoosting;
 
     void Awake()
@@ -110,6 +122,12 @@ public class GameManager : MonoBehaviour
         Time.timeScale = 1;
 
         SpawnPlayerOnFirstPlatform();
+
+        // Uzay evresi düşen meteor engel spawner'ını otomatik başlat
+        if (Object.FindAnyObjectByType<SpaceMeteorSpawner>() == null)
+        {
+            gameObject.AddComponent<SpaceMeteorSpawner>();
+        }
 
         if (gameOverPanel != null) gameOverPanel.SetActive(false);
         if (pausePanel != null) pausePanel.SetActive(false);
@@ -168,7 +186,28 @@ public class GameManager : MonoBehaviour
 
             currentScore = score;
             if (scoreText != null) scoreText.text = "SKOR: " + (int)score;
+
+            if (hasShield)
+            {
+                shieldTimer -= Time.deltaTime;
+                if (shieldTimer <= 0f)
+                {
+                    hasShield = false;
+                    shieldTimer = 0f;
+                }
+            }
             UpdateShieldVisuals();
+
+            if (hasSuperFeet)
+            {
+                superFeetTimer -= Time.deltaTime;
+                if (superFeetTimer <= 0f)
+                {
+                    hasSuperFeet = false;
+                    superFeetTimer = 0f;
+                }
+            }
+            UpdateSuperFeetVisuals();
         }
     }
 
@@ -279,6 +318,7 @@ public class GameManager : MonoBehaviour
     public void ActivateShield()
     {
         hasShield = true;
+        shieldTimer = shieldDuration;
 
         if (canKazanmaSesi != null)
         {
@@ -291,6 +331,85 @@ public class GameManager : MonoBehaviour
 
         EnsureShieldVisual();
         if (shieldVisualObj != null) shieldVisualObj.SetActive(true);
+    }
+
+    public void ActivateSuperFeet()
+    {
+        hasSuperFeet = true;
+        superFeetTimer = superFeetDuration;
+
+        if (canKazanmaSesi != null)
+        {
+            if (audioSource == null) audioSource = GetComponent<AudioSource>();
+            if (audioSource == null) audioSource = gameObject.AddComponent<AudioSource>();
+            audioSource.pitch = 1.26f;
+            audioSource.PlayOneShot(canKazanmaSesi, 0.78f);
+            audioSource.pitch = 1f;
+        }
+
+        EnsureSuperFeetVisual();
+        if (superFeetVisualObj != null) superFeetVisualObj.SetActive(true);
+    }
+
+    private void EnsureSuperFeetVisual()
+    {
+        if (superFeetVisualObj != null || player == null) return;
+
+        superFeetVisualObj = new GameObject("SuperPigeonFeetVisual");
+        superFeetVisualObj.transform.SetParent(player.transform, false);
+        superFeetVisualObj.transform.localPosition = new Vector3(0f, -0.155f, 0f);
+
+        Vector3 pScale = player.transform.localScale;
+        float absX = Mathf.Max(0.01f, Mathf.Abs(pScale.x));
+        float absY = Mathf.Max(0.01f, Mathf.Abs(pScale.y));
+        const float targetWorldWidth = 0.62f;
+        superFeetVisualObj.transform.localScale = new Vector3(
+            targetWorldWidth / absX,
+            targetWorldWidth / absY,
+            1f);
+
+        superFeetVisualRenderer = superFeetVisualObj.AddComponent<SpriteRenderer>();
+        superFeetVisualRenderer.sprite = PowerUpPickup.GetSuperFeetSprite();
+        SpriteRenderer playerSr = player.GetComponent<SpriteRenderer>();
+        if (playerSr != null)
+        {
+            superFeetVisualRenderer.sortingLayerID = playerSr.sortingLayerID;
+            superFeetVisualRenderer.sortingOrder = playerSr.sortingOrder + 1;
+        }
+        else
+        {
+            superFeetVisualRenderer.sortingOrder = 11;
+        }
+    }
+
+    private void UpdateSuperFeetVisuals()
+    {
+        if (!hasSuperFeet)
+        {
+            if (superFeetVisualObj != null && superFeetVisualObj.activeSelf)
+            {
+                superFeetVisualObj.SetActive(false);
+            }
+            return;
+        }
+
+        EnsureSuperFeetVisual();
+        if (superFeetVisualObj != null)
+        {
+            if (!superFeetVisualObj.activeSelf) superFeetVisualObj.SetActive(true);
+
+            // Hafif komik yürüyüş/zıplama paytaklığı
+            float waddle = Mathf.Sin(Time.time * 12f) * 6f;
+            superFeetVisualObj.transform.localRotation = Quaternion.Euler(0f, 0f, waddle);
+
+            if (superFeetVisualRenderer != null)
+            {
+                float alpha = (superFeetTimer <= 3f)
+                    ? (0.28f + 0.72f * Mathf.Abs(Mathf.Sin(Time.time * 16f)))
+                    : 1f;
+                superFeetVisualRenderer.color = new Color(1f, 1f, 1f, alpha);
+            }
+        }
     }
 
     public void ActivateRocketBoost()
@@ -357,7 +476,7 @@ public class GameManager : MonoBehaviour
         shieldVisualObj = new GameObject("ShieldBubbleAura");
         shieldVisualObj.transform.SetParent(player.transform, false);
         shieldVisualObj.transform.localPosition = Vector3.zero;
-        shieldVisualObj.transform.localScale = new Vector3(0.56f, 0.72f, 1f);
+        shieldVisualObj.transform.localScale = new Vector3(0.30f, 0.38f, 1f);
 
         shieldVisualRenderer = shieldVisualObj.AddComponent<SpriteRenderer>();
         shieldVisualRenderer.sprite = PowerUpPickup.GetShieldAuraSprite();
@@ -380,11 +499,20 @@ public class GameManager : MonoBehaviour
         if (shieldVisualObj != null)
         {
             if (!shieldVisualObj.activeSelf) shieldVisualObj.SetActive(true);
-            float pulse = 1f + Mathf.Sin(Time.time * 4.5f) * 0.06f;
-            shieldVisualObj.transform.localScale = new Vector3(0.56f * pulse, 0.72f * pulse, 1f);
+            float pulse = 1f + Mathf.Sin(Time.time * 4.5f) * 0.05f;
+            shieldVisualObj.transform.localScale = new Vector3(0.30f * pulse, 0.38f * pulse, 1f);
             if (shieldVisualRenderer != null)
             {
-                float alphaPulse = 0.85f + 0.15f * Mathf.Sin(Time.time * 6f);
+                float alphaPulse;
+                if (shieldTimer <= 3f)
+                {
+                    // Kalkanın bitmesine son 3 saniye kala hızlı yanıp sönme uyarısı
+                    alphaPulse = 0.25f + 0.75f * Mathf.Abs(Mathf.Sin(Time.time * 16f));
+                }
+                else
+                {
+                    alphaPulse = 0.85f + 0.15f * Mathf.Sin(Time.time * 6f);
+                }
                 shieldVisualRenderer.color = new Color(1f, 1f, 1f, alphaPulse);
             }
         }
@@ -417,6 +545,20 @@ public class GameManager : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Meteor gibi anlık bir tehlike çarptığında kalkan aktifse oyuncuyu ışınlamadan yerinde korur.
+    /// </summary>
+    public bool TryAbsorbHitWithShield(Vector3 impactPos)
+    {
+        if (!hasShield) return false;
+
+        hasShield = false;
+        shieldTimer = 0f;
+        if (shieldVisualObj != null) shieldVisualObj.SetActive(false);
+        JumpDustEffect.SpawnJumpDust(impactPos);
+        return true;
+    }
+
     public void TakeDamage()
     {
         if (!isGameActive) return;
@@ -438,6 +580,7 @@ public class GameManager : MonoBehaviour
         if (hasShield)
         {
             hasShield = false;
+            shieldTimer = 0f;
             if (shieldVisualObj != null) shieldVisualObj.SetActive(false);
 
             if (player != null)

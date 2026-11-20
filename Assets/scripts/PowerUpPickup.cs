@@ -3,7 +3,8 @@ using UnityEngine;
 public enum PowerUpType
 {
     Shield = 0,
-    Rocket = 1
+    Rocket = 1,
+    SuperFeet = 2
 }
 
 /// <summary>
@@ -22,6 +23,7 @@ public class PowerUpPickup : MonoBehaviour
 
     private static Sprite cachedShieldPickupSprite;
     private static Sprite cachedRocketPickupSprite;
+    private static Sprite cachedSuperFeetSprite;
     private static Sprite cachedShieldAuraSprite;
     private static Sprite cachedRocketFlameSprite;
 
@@ -34,11 +36,14 @@ public class PowerUpPickup : MonoBehaviour
         Vector3 parentScale = platformParent != null ? platformParent.lossyScale : Vector3.one;
         float invX = 1f / Mathf.Max(0.01f, Mathf.Abs(parentScale.x));
         float invY = 1f / Mathf.Max(0.01f, Mathf.Abs(parentScale.y));
-        transform.localScale = new Vector3(0.72f * invX, 0.72f * invY, 1f);
+        float iconSize = (type == PowerUpType.Shield) ? 0.56f : (type == PowerUpType.SuperFeet ? 0.72f : 0.68f);
+        transform.localScale = new Vector3(iconSize * invX, iconSize * invY, 1f);
 
         SpriteRenderer sr = gameObject.GetComponent<SpriteRenderer>();
         if (sr == null) sr = gameObject.AddComponent<SpriteRenderer>();
-        sr.sprite = (type == PowerUpType.Shield) ? GetShieldPickupSprite() : GetRocketPickupSprite();
+        if (type == PowerUpType.Shield) sr.sprite = GetShieldPickupSprite();
+        else if (type == PowerUpType.SuperFeet) sr.sprite = GetSuperFeetSprite();
+        else sr.sprite = GetRocketPickupSprite();
         sr.sortingOrder = 6;
 
         CircleCollider2D col = gameObject.GetComponent<CircleCollider2D>();
@@ -80,6 +85,10 @@ public class PowerUpPickup : MonoBehaviour
                 {
                     gm.ActivateShield();
                 }
+                else if (powerUpType == PowerUpType.SuperFeet)
+                {
+                    gm.ActivateSuperFeet();
+                }
                 else
                 {
                     gm.ActivateRocketBoost();
@@ -91,6 +100,17 @@ public class PowerUpPickup : MonoBehaviour
     }
 
     #region Procedural Pixel-Art Sprites
+    public static Sprite GetSuperFeetSprite()
+    {
+        if (cachedSuperFeetSprite != null) return cachedSuperFeetSprite;
+
+        cachedSuperFeetSprite = Resources.Load<Sprite>("PowerUps/pigeon_feet");
+        if (cachedSuperFeetSprite != null) return cachedSuperFeetSprite;
+
+        // Yedek basit ayak ikonu (Resources yüklenemezse)
+        return GetShieldPickupSprite();
+    }
+
     public static Sprite GetShieldPickupSprite()
     {
         if (cachedShieldPickupSprite != null) return cachedShieldPickupSprite;

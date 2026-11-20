@@ -20,6 +20,11 @@ public class PlatformMovement : MonoBehaviour
     private float screenLimit = 2.0f;
     private float randomOffset;
 
+    /// <summary>
+    /// Platformun anlık yatay kayma hızı (karakterin platformla birlikte kayabilmesi için).
+    /// </summary>
+    public float CurrentHorizontalVelocity { get; private set; }
+
     void Start()
     {
         startX = transform.position.x;
@@ -45,9 +50,15 @@ public class PlatformMovement : MonoBehaviour
         // 2. Yatay Hareket (Sağa - Sola yumuşak salınım)
         if (isMovingHorizontal)
         {
+            float prevX = transform.position.x;
             float newX = startX + Mathf.Sin((Time.time * horizontalSpeed) + randomOffset) * horizontalDistance;
             newX = Mathf.Clamp(newX, -screenLimit, screenLimit);
             transform.position = new Vector3(newX, transform.position.y, transform.position.z);
+            CurrentHorizontalVelocity = Time.deltaTime > 0.0001f ? (newX - prevX) / Time.deltaTime : 0f;
+        }
+        else
+        {
+            CurrentHorizontalVelocity = 0f;
         }
 
         // 3. Ekranın En Altına Gelince Yok Etme (Barın içine tamamen girdikten sonra oyuncu görmeden silinir)
