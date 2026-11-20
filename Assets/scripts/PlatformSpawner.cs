@@ -57,16 +57,39 @@ public class PlatformSpawner : MonoBehaviour
     private int platformsSinceLastHeart = 20;
 
     private GameObject lastSpawnedPlatform;
+    private GameObject firstSpawnedPlatform;
+    private bool hasSpawnedFirstPlatform = false;
     private float nextSpawnDistance = 1.7f;
     private int consecutiveSameSideCount = 0;
     private float lastDirection = 0f;
 
     void Start()
     {
-        skyCycleManager = Object.FindAnyObjectByType<SkyCycleManager>();
+        EnsureFirstPlatformSpawned();
+    }
+
+    /// <summary>
+    /// Oyun başında ilk platformun yalnızca bir kez üretilmesini garantiler ve referansını döndürür.
+    /// GameManager.Start veya PlatformSpawner.Start hangisi önce çalışırsa çalışsın güvenle çağrılabilir.
+    /// </summary>
+    public GameObject EnsureFirstPlatformSpawned()
+    {
+        if (hasSpawnedFirstPlatform)
+        {
+            return firstSpawnedPlatform;
+        }
+
+        if (skyCycleManager == null)
+        {
+            skyCycleManager = Object.FindAnyObjectByType<SkyCycleManager>();
+        }
+
         CalculateLimits();
         nextSpawnDistance = Random.Range(minDistance, maxDistance);
-        SpawnPlatform();
+        SpawnPlatform(isFirstPlatform: true);
+        firstSpawnedPlatform = lastSpawnedPlatform;
+        hasSpawnedFirstPlatform = true;
+        return firstSpawnedPlatform;
     }
 
     /// <summary>
@@ -92,7 +115,7 @@ public class PlatformSpawner : MonoBehaviour
         }
     }
 
-    void SpawnPlatform()
+    void SpawnPlatform(bool isFirstPlatform = false)
     {
         CalculateLimits();
 
@@ -201,7 +224,7 @@ public class PlatformSpawner : MonoBehaviour
         float currentMovingChance = Mathf.Lerp(baslangicHareketSans, maksimumHareketSans, progress);
 
         PlatformMovement pm = lastSpawnedPlatform.GetComponent<PlatformMovement>();
-        if (pm != null && Random.value < currentMovingChance)
+        if (!isFirstPlatform && pm != null && Random.value < currentMovingChance)
         {
             float randomSpeed = Random.Range(1.6f, 2.3f);
             float randomDist = Random.Range(0.6f, 1.0f);
@@ -210,7 +233,7 @@ public class PlatformSpawner : MonoBehaviour
 
         // 1000 skordan sonra nadir olarak platform üzerinde can ikonu üret
         bool spawnedHeart = false;
-        if (GameManager.currentScore >= 1000f && platformsSinceLastHeart >= minPlatformsBetweenHearts)
+        if (!isFirstPlatform && GameManager.currentScore >= 1000f && platformsSinceLastHeart >= minPlatformsBetweenHearts)
         {
             if (Random.value < heartSpawnChance)
             {
@@ -228,8 +251,11 @@ public class PlatformSpawner : MonoBehaviour
             platformsSinceLastHeart++;
         }
 
-        // Aynı platformda can yoksa belirli aralıklarla coin meyvesi üret
-        TrySpawnPlatformCoin(lastSpawnedPlatform, spawnedHeart);
+        // İlk doğuş platformu dışında belirli aralıklarla coin meyvesi üret
+        if (!isFirstPlatform)
+        {
+            TrySpawnPlatformCoin(lastSpawnedPlatform, spawnedHeart);
+        }
 
         // Bir sonraki platform için güvenli ve rahat dikey mesafe belirle (1.6f - 2.1f)
         nextSpawnDistance = Random.Range(minDistance, maxDistance);
