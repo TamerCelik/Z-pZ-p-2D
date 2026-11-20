@@ -92,7 +92,7 @@ public class GameManager : MonoBehaviour
         UpdateCoinUI();
         Time.timeScale = 1;
 
-        GuvenliPlatformOlustur();
+        SpawnPlayerOnFirstPlatform();
 
         if (gameOverPanel != null) gameOverPanel.SetActive(false);
         if (pausePanel != null) pausePanel.SetActive(false);
@@ -265,6 +265,51 @@ public class GameManager : MonoBehaviour
             }
             GuvenliPlatformOlustur();
         }
+    }
+
+    /// <summary>
+    /// Oyun ilk başladığında spawner'ın ürettiği ilk platformu garantiler ve karakteri doğrudan onun üstüne yerleştirir.
+    /// </summary>
+    void SpawnPlayerOnFirstPlatform()
+    {
+        PlatformSpawner spawner = Object.FindAnyObjectByType<PlatformSpawner>();
+        GameObject firstPlatform = spawner != null ? spawner.EnsureFirstPlatformSpawned() : null;
+
+        if (firstPlatform == null)
+        {
+            GuvenliPlatformOlustur();
+            return;
+        }
+
+        if (player == null) return;
+
+        Physics2D.SyncTransforms();
+
+        Collider2D platformCol = firstPlatform.GetComponentInChildren<Collider2D>();
+        float platformTopY = platformCol != null
+            ? platformCol.bounds.max.y
+            : firstPlatform.transform.position.y + 0.2f;
+
+        Collider2D playerCol = player.GetComponent<Collider2D>();
+        float playerBottomOffset = playerCol != null
+            ? (player.transform.position.y - playerCol.bounds.min.y)
+            : 0.25f;
+
+        player.transform.SetParent(null);
+        player.transform.position = new Vector3(
+            firstPlatform.transform.position.x,
+            platformTopY + playerBottomOffset + 0.04f,
+            player.transform.position.z
+        );
+
+        Rigidbody2D rb = player.GetComponent<Rigidbody2D>();
+        if (rb != null)
+        {
+            rb.linearVelocity = new Vector2(0f, -globalPlatformSpeed);
+            rb.angularVelocity = 0f;
+        }
+
+        Physics2D.SyncTransforms();
     }
 
     void GuvenliPlatformOlustur()
