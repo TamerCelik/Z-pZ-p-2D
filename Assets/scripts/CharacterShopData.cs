@@ -79,6 +79,26 @@ public static class CharacterShopData
         OnShopStateChanged?.Invoke();
     }
 
+    public static bool TrySpendCoins(int amount, out int remainingCoins)
+    {
+        int current = GetCoins();
+        if (amount <= 0)
+        {
+            remainingCoins = current;
+            return true;
+        }
+        if (current < amount)
+        {
+            remainingCoins = current;
+            return false;
+        }
+        remainingCoins = current - amount;
+        PlayerPrefs.SetInt(TotalCoinsKey, remainingCoins);
+        PlayerPrefs.Save();
+        OnShopStateChanged?.Invoke();
+        return true;
+    }
+
     public static bool IsUnlocked(string characterId)
     {
         if (TryGetEntry(characterId, out CharacterCatalogEntry entry) && entry.Price <= 0)

@@ -61,13 +61,23 @@ public class GameManager : MonoBehaviour
     private AudioSource coinAudioSource;
     private Coroutine coinPunchCoroutine;
 
+    [Header("Devam Et (Revive) Ayarları")]
+    [Tooltip("Ölünce aynı yerden 1 canla devam etme ücreti (Coin)")]
+    public int continueCost = 50;
+
+    private Button continueButton;
+    private Image continueButtonImage;
+    private TextMeshProUGUI continueButtonText;
+    private Sprite continueButtonSprite;
+    private readonly System.Collections.Generic.List<GameObject> hiddenMobileButtons = new System.Collections.Generic.List<GameObject>();
+
     [Header("Güçlendirmeler (Kalkan, Roket & Kuş Ayağı)")]
     [Tooltip("Koruyucu kalkanın aktif kalma süresi (saniye)")]
     public float shieldDuration = 12f;
     [Tooltip("Kuş ayağı (2 platform zıplama + içinden geçme) süresi (saniye)")]
     public float superFeetDuration = 12f;
-    [Tooltip("Kuş ayağı aktifken zıplama kuvvet çarpanı (1.92 -> 2 tam platformu rahatça aşar)")]
-    public float superFeetJumpMultiplier = 1.92f;
+    [Tooltip("Kuş ayağı aktifken zıplama kuvvet çarpanı (1.82 -> 2 tam platformu dengeli şekilde aşar)")]
+    public float superFeetJumpMultiplier = 1.82f;
     public float rocketBoostDuration = 3.2f;
     public float rocketSpeedMultiplier = 3.1f;
     public float rocketTargetY = 1.15f;
@@ -241,7 +251,11 @@ public class GameManager : MonoBehaviour
 
         // Kontrol moduna göre butonları tazele
         PlayerController pc = Object.FindFirstObjectByType<PlayerController>();
-        if (pc != null) pc.ApplyControlModeUI();
+        if (pc != null)
+        {
+            pc.SetMobileMoveInput(0f);
+            pc.ApplyControlModeUI();
+        }
     }
 
     public void OpenSettingsSubPanel()
@@ -756,6 +770,7 @@ public class GameManager : MonoBehaviour
         if (pausePanel != null) pausePanel.SetActive(false);
 
         // Mobil butonları GameOver anında otomatik gizle
+        hiddenMobileButtons.Clear();
         if (mobileControlsPanel != null)
         {
             mobileControlsPanel.SetActive(false);
@@ -765,7 +780,11 @@ public class GameManager : MonoBehaviour
             MobileButton[] mobileButtons = Object.FindObjectsByType<MobileButton>(FindObjectsSortMode.None);
             foreach (var btn in mobileButtons)
             {
-                btn.gameObject.SetActive(false);
+                if (btn != null && btn.gameObject.activeSelf)
+                {
+                    hiddenMobileButtons.Add(btn.gameObject);
+                    btn.gameObject.SetActive(false);
+                }
             }
         }
 
@@ -782,7 +801,204 @@ public class GameManager : MonoBehaviour
         if (finalScoreText != null) finalScoreText.text = "SKORUN: " + currentScoreInt;
         if (highScoreText != null) highScoreText.text = "EN İYİ: " + highScore;
 
+        EnsureContinueButtonUI();
+        RefreshContinueButtonUI();
+
         Time.timeScale = 0;
+    }
+
+    private void EnsureContinueButtonUI()
+    {
+        if (continueButton != null || gameOverPanel == null) return;
+
+        GameObject btnObj = new GameObject("ContinueWithCoinsButton", typeof(RectTransform), typeof(Image), typeof(Button));
+        btnObj.transform.SetParent(gameOverPanel.transform, false);
+
+        RectTransform rt = btnObj.GetComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0.102f, 0.147f);
+        rt.anchorMax = new Vector2(0.898f, 0.252f);
+        rt.offsetMin = Vector2.zero;
+        rt.offsetMax = Vector2.zero;
+        rt.pivot = new Vector2(0.5f, 0.5f);
+
+        continueButtonSprite = Resources.Load<Sprite>("UI/gameover_btn_continue");
+        bool hasCustomSprite = continueButtonSprite != null;
+        if (!hasCustomSprite)
+        {
+            continueButtonSprite = CreateContinuePillSprite();
+        }
+
+        continueButtonImage = btnObj.GetComponent<Image>();
+        continueButtonImage.sprite = continueButtonSprite;
+        continueButtonImage.type = hasCustomSprite ? Image.Type.Simple : Image.Type.Sliced;
+        continueButtonImage.preserveAspect = false;
+        continueButtonImage.color = Color.white;
+
+        continueButton = btnObj.GetComponent<Button>();
+        ColorBlock cb = continueButton.colors;
+        cb.normalColor = Color.white;
+        cb.highlightedColor = new Color(1.06f, 1.06f, 1.06f, 1f);
+        cb.pressedColor = new Color(0.86f, 0.86f, 0.86f, 1f);
+        cb.disabledColor = new Color(0.68f, 0.68f, 0.72f, 0.90f);
+        continueButton.colors = cb;
+        continueButton.onClick.AddListener(ContinueWithCoins);
+
+        GameObject txtObj = new GameObject("Label", typeof(RectTransform), typeof(TextMeshProUGUI));
+        txtObj.transform.SetParent(btnObj.transform, false);
+
+        RectTransform txtRt = txtObj.GetComponent<RectTransform>();
+        txtRt.anchorMin = new Vector2(hasCustomSprite ? 0.23f : 0.06f, 0.14f);
+        txtRt.anchorMax = new Vector2(0.94f, 0.84f);
+        txtRt.offsetMin = Vector2.zero;
+        txtRt.offsetMax = Vector2.zero;
+
+        continueButtonText = txtObj.GetComponent<TextMeshProUGUI>();
+        if (finalScoreText != null && finalScoreText.font != null)
+        {
+            continueButtonText.font = finalScoreText.font;
+        }
+        continueButtonText.alignment = TextAlignmentOptions.Center;
+        continueButtonText.textWrappingMode = TextWrappingModes.NoWrap;
+        continueButtonText.overflowMode = TextOverflowModes.Overflow;
+        continueButtonText.enableAutoSizing = true;
+        continueButtonText.fontSizeMin = 12f;
+        continueButtonText.fontSizeMax = 28f;
+        continueButtonText.fontStyle = FontStyles.Bold;
+        continueButtonText.color = Color.white;
+        continueButtonText.enableVertexGradient = true;
+        continueButtonText.colorGradient = new VertexGradient(
+            Color.white,
+            Color.white,
+            new Color(0.82f, 0.84f, 0.88f, 1f),
+            new Color(0.82f, 0.84f, 0.88f, 1f));
+        continueButtonText.outlineWidth = 0.30f;
+        continueButtonText.outlineColor = new Color32(18, 12, 10, 255);
+    }
+
+    private void RefreshContinueButtonUI()
+    {
+        if (continueButton == null || continueButtonText == null || continueButtonImage == null) return;
+
+        int coins = CharacterShopData.GetCoins();
+        bool canAfford = coins >= continueCost;
+        continueButton.interactable = canAfford;
+
+        if (canAfford)
+        {
+            continueButtonImage.color = Color.white;
+            continueButtonText.text = $"DEVAM ET ({continueCost})";
+            continueButtonText.color = Color.white;
+        }
+        else
+        {
+            continueButtonImage.color = new Color(0.62f, 0.62f, 0.66f, 0.92f);
+            continueButtonText.text = $"{continueCost} COIN ({coins}/{continueCost})";
+            continueButtonText.color = new Color(0.88f, 0.88f, 0.90f, 1f);
+        }
+    }
+
+    /// <summary>
+    /// 50 coin karşılığında skoru ve oyun ilerleyişini koruyarak 1 canla aynı yerden devam ettirir.
+    /// </summary>
+    public void ContinueWithCoins()
+    {
+        if (isGameActive) return;
+
+        if (!CharacterShopData.TrySpendCoins(continueCost, out _))
+        {
+            RefreshContinueButtonUI();
+            return;
+        }
+
+        UpdateCoinUI();
+
+        health = 1;
+        UpdateHealthUI();
+
+        isGameActive = true;
+        isPaused = false;
+        postRocketGraceTimer = 1.6f; // Devam etme anında kısa güvenli koruma süresi
+
+        float hizOrani = Mathf.Clamp01(score / maxHizSkoru);
+        globalPlatformSpeed = Mathf.Lerp(baslangicHizi, maksimumHiz, hizOrani);
+
+        if (gameOverPanel != null) gameOverPanel.SetActive(false);
+        if (pausePanel != null) pausePanel.SetActive(false);
+        if (pauseButton != null) pauseButton.SetActive(true);
+
+        if (mobileControlsPanel != null)
+        {
+            mobileControlsPanel.SetActive(true);
+        }
+        else
+        {
+            for (int i = 0; i < hiddenMobileButtons.Count; i++)
+            {
+                if (hiddenMobileButtons[i] != null) hiddenMobileButtons[i].SetActive(true);
+            }
+            hiddenMobileButtons.Clear();
+        }
+
+        PlayerController pc = Object.FindFirstObjectByType<PlayerController>();
+        if (pc != null)
+        {
+            pc.SetMobileMoveInput(0f);
+            pc.ApplyControlModeUI();
+        }
+
+        if (player != null && respawnPoint != null)
+        {
+            player.transform.SetParent(null);
+            player.transform.position = respawnPoint.position;
+            Rigidbody2D rb = player.GetComponent<Rigidbody2D>();
+            if (rb != null)
+            {
+                rb.linearVelocity = Vector2.zero;
+                rb.angularVelocity = 0f;
+            }
+            JumpDustEffect.SpawnSuperJumpBurst(player.transform.position);
+        }
+
+        GuvenliPlatformOlustur();
+
+        if (audioSource != null && canKazanmaSesi != null)
+        {
+            audioSource.PlayOneShot(canKazanmaSesi, 1.0f);
+        }
+
+        Time.timeScale = 1f;
+    }
+
+    private static Sprite CreateContinuePillSprite()
+    {
+        const int w = 64;
+        const int h = 64;
+        const int r = 18;
+        Texture2D tex = new Texture2D(w, h, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear };
+        Color[] cols = new Color[w * h];
+
+        for (int y = 0; y < h; y++)
+        {
+            for (int x = 0; x < w; x++)
+            {
+                float dx = Mathf.Max(0f, Mathf.Max(r - x, x - (w - 1 - r)));
+                float dy = Mathf.Max(0f, Mathf.Max(r - y, y - (h - 1 - r)));
+                float dist = Mathf.Sqrt(dx * dx + dy * dy);
+                float alpha = Mathf.Clamp01(r - dist + 0.5f);
+
+                // Üstte parlak vurgu, altta hafif gölge ve ince kenarlık
+                bool isBorder = dist > r - 3.2f;
+                float tY = (float)y / (h - 1);
+                Color fill = isBorder
+                    ? new Color(1.00f, 0.90f, 0.42f, alpha)
+                    : Color.Lerp(new Color(0.84f, 0.84f, 0.84f, alpha), new Color(1.06f, 1.06f, 1.06f, alpha), tY);
+                cols[y * w + x] = fill;
+            }
+        }
+
+        tex.SetPixels(cols);
+        tex.Apply();
+        return Sprite.Create(tex, new Rect(0, 0, w, h), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect, new Vector4(r, r, r, r));
     }
 
     /// <summary>

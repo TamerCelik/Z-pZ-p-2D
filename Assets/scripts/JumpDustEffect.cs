@@ -196,36 +196,18 @@ public class JumpDustEffect : MonoBehaviour
 
     private void EmitTakeoffDust(Vector3 feetPos)
     {
-        // Yumuşak zıplama halkası
-        SpawnParticle(ringSprite, feetPos + new Vector3(0f, -0.02f, 0f), Vector2.zero,
-            new Vector2(0.24f, 0.09f), new Vector2(0.88f, 0.24f), 0f, 0.24f,
-            new Color(1f, 0.99f, 0.92f), 0.72f);
-
-        // Toz bulutları
+        // Normal zıplamada sadece klasik yumuşak toz bulutu
         Color tint = new Color(1f, 0.98f, 0.93f);
-        const int count = 7;
+        const int count = 6;
         for (int i = 0; i < count; i++)
         {
             float spreadT = ((float)i / (count - 1)) * 2f - 1f;
-            Vector3 spawnPos = feetPos + new Vector3(spreadT * 0.18f + Random.Range(-0.04f, 0.04f), Random.Range(-0.03f, 0.05f), 0f);
-            Vector2 vel = new Vector2(spreadT * Random.Range(1.05f, 1.75f) + Random.Range(-0.25f, 0.25f), Random.Range(0.18f, 0.80f));
-            float startS = dustBaseWorldScale * Random.Range(0.80f, 1.20f);
-            float endS = startS * Random.Range(1.40f, 1.75f);
+            Vector3 spawnPos = feetPos + new Vector3(spreadT * 0.16f + Random.Range(-0.04f, 0.04f), Random.Range(-0.03f, 0.04f), 0f);
+            Vector2 vel = new Vector2(spreadT * Random.Range(0.95f, 1.55f) + Random.Range(-0.22f, 0.22f), Random.Range(0.15f, 0.65f));
+            float startS = dustBaseWorldScale * Random.Range(0.75f, 1.10f);
+            float endS = startS * Random.Range(1.35f, 1.65f);
             SpawnParticle(dustSprite, spawnPos, vel, new Vector2(startS, startS), new Vector2(endS, endS),
-                Random.Range(-150f, 150f), Random.Range(0.26f, 0.38f), tint, 0.88f);
-        }
-
-        // 3 minik parıltı yıldızı
-        for (int i = 0; i < 3; i++)
-        {
-            float sx = Random.Range(-0.22f, 0.22f);
-            Vector2 vel = new Vector2(sx * 4.5f, Random.Range(0.55f, 1.25f));
-            float s0 = starBaseWorldScale * Random.Range(0.75f, 1.05f);
-            float s1 = s0 * 0.25f;
-            SpawnParticle(starSprite, feetPos + new Vector3(sx, 0.02f, 0f), vel,
-                new Vector2(s0, s0), new Vector2(s1, s1),
-                Random.Range(-220f, 220f), Random.Range(0.28f, 0.40f),
-                new Color(1f, 0.94f, 0.55f), 0.95f);
+                Random.Range(-140f, 140f), Random.Range(0.24f, 0.34f), tint, 0.82f);
         }
     }
 
