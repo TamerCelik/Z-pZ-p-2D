@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
@@ -64,8 +63,6 @@ public class PlayerController : MonoBehaviour
     private bool mobileJumpRequested = false;
     private PlatformMovement standingPlatform;
     private Collider2D playerCollider;
-    private readonly HashSet<Collider2D> ignoredPassThroughPlatforms = new HashSet<Collider2D>();
-    private readonly List<Collider2D> tempCleanupList = new List<Collider2D>();
 
     // Zıplama & iniş esneme (Squash & Stretch) animasyonu ve iz zamanlayıcısı
     private float baseAbsScaleX = 1.8f;
@@ -79,7 +76,12 @@ public class PlayerController : MonoBehaviour
     {
         rb = GetComponent<Rigidbody2D>();
         playerCollider = GetComponent<Collider2D>();
-        if (rb != null) baseGravityScale = rb.gravityScale;
+        if (rb != null)
+        {
+            baseGravityScale = rb.gravityScale;
+            // Süper zıplamadan hızlı düşerken ince platformların içinden geçmeyi (tunneling) kesin olarak önle
+            rb.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
+        }
 
         baseAbsScaleX = Mathf.Abs(transform.localScale.x);
         baseScaleY = transform.localScale.y;
@@ -192,10 +194,17 @@ public class PlayerController : MonoBehaviour
 
         // 4. ZEMİN KONTROLÜ & KAYAN PLATFORM TAKİBİ
         bool superFeetActive = GameManager.Instance != null && GameManager.Instance.IsSuperFeetActive;
-        UpdatePassThroughPlatforms(superFeetActive && !rocketActive);
 
         Collider2D groundHit = Physics2D.OverlapCircle(ayakNoktasi.position, ayakCapi, zeminKatmani);
-        yerdeMi = groundHit != null && !ignoredPassThroughPlatforms.Contains(groundHit);
+        if (groundHit != null && superFeetActive && playerCollider != null)
+        {
+            // Tek yönlü platformun altından yukarı geçerken zemine basmış sayma
+            if (rb.linearVelocity.y > 0.15f || playerCollider.bounds.min.y < groundHit.bounds.center.y)
+            {
+                groundHit = null;
+            }
+        }
+        yerdeMi = groundHit != null;
         standingPlatform = (yerdeMi && groundHit != null) ? groundHit.GetComponentInParent<PlatformMovement>() : null;
 
         if (rocketActive)
@@ -222,7 +231,7 @@ public class PlayerController : MonoBehaviour
         if (yerdeMi && !wasGroundedForSquash && rb.linearVelocity.y <= 0.1f)
         {
             // Yere inişte tatlı ezilme (squash)
-            visualStretch = new Vector2(1.22f, 0.80f);
+            visualStretch = new Vector2(1.14f, 0.88f);
         }
         wasGroundedForSquash = yerdeMi;
 
@@ -314,80 +323,6 @@ public class PlayerController : MonoBehaviour
             if (audioSource != null && jumpSound != null)
             {
                 audioSource.PlayOneShot(jumpSound, ziplamaSesiSiddeti);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Kuş ayağı aktifken yukarı zıplarken (veya platformun içindeyken) platformların içinden
-    /// takılmadan geçmeyi, aşağı inerken ise üstlerine sağlamca konmayı sağlar.
-    /// </summary>
-    private void UpdatePassThroughPlatforms(bool enablePassThrough)
-    {
-        if (playerCollider == null) return;
-
-        if (!enablePassThrough)
-        {
-            if (ignoredPassThroughPlatforms.Count > 0)
-            {
-                foreach (Collider2D col in ignoredPassThroughPlatforms)
-                {
-                    if (col != null) Physics2D.IgnoreCollision(playerCollider, col, false);
-                }
-                ignoredPassThroughPlatforms.Clear();
-            }
-            return;
-        }
-
-        float playerBottomY = playerCollider.bounds.min.y;
-        bool rising = rb != null && rb.linearVelocity.y > 0.12f;
-
-        Collider2D[] nearby = Physics2D.OverlapCircleAll(transform.position, 2.8f, zeminKatmani);
-        for (int i = 0; i < nearby.Length; i++)
-        {
-            Collider2D pCol = nearby[i];
-            if (pCol == null || pCol == playerCollider) continue;
-
-            float platformTopY = pCol.bounds.max.y;
-            bool shouldPass = rising || (playerBottomY < platformTopY - 0.12f);
-
-            if (shouldPass)
-            {
-                if (!ignoredPassThroughPlatforms.Contains(pCol))
-                {
-                    Physics2D.IgnoreCollision(playerCollider, pCol, true);
-                    ignoredPassThroughPlatforms.Add(pCol);
-                }
-            }
-            else
-            {
-                if (ignoredPassThroughPlatforms.Contains(pCol))
-                {
-                    Physics2D.IgnoreCollision(playerCollider, pCol, false);
-                    ignoredPassThroughPlatforms.Remove(pCol);
-                }
-            }
-        }
-
-        // Yok olmuş veya uzaklaşmış platformları listeden temizle
-        if (ignoredPassThroughPlatforms.Count > 0)
-        {
-            tempCleanupList.Clear();
-            foreach (Collider2D col in ignoredPassThroughPlatforms)
-            {
-                if (col == null)
-                {
-                    tempCleanupList.Add(col);
-                }
-                else if (!rising && playerBottomY >= col.bounds.max.y - 0.10f)
-                {
-                    Physics2D.IgnoreCollision(playerCollider, col, false);
-                    tempCleanupList.Add(col);
-                }
-            }
-            for (int i = 0; i < tempCleanupList.Count; i++)
-            {
-                ignoredPassThroughPlatforms.Remove(tempCleanupList[i]);
             }
         }
     }

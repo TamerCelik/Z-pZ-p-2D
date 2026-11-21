@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 
 public class PlatformMovement : MonoBehaviour
 {
@@ -19,11 +19,18 @@ public class PlatformMovement : MonoBehaviour
     private float startX;
     private float screenLimit = 2.0f;
     private float randomOffset;
+    private Collider2D platformCollider;
+    private PlatformEffector2D oneWayEffector;
 
     /// <summary>
     /// Platformun anlık yatay kayma hızı (karakterin platformla birlikte kayabilmesi için).
     /// </summary>
     public float CurrentHorizontalVelocity { get; private set; }
+
+    void Awake()
+    {
+        platformCollider = GetComponent<Collider2D>();
+    }
 
     void Start()
     {
@@ -40,10 +47,58 @@ public class PlatformMovement : MonoBehaviour
             // Platform barın arkasında tamamen kaybolup ekranın en altına inince silinir
             destroyY = -cam.orthographicSize - 0.5f;
         }
+
+        SyncOneWayEffector();
+    }
+
+    void FixedUpdate()
+    {
+        SyncOneWayEffector();
+    }
+
+    /// <summary>
+    /// Kuş Ayağı güçlendirmesi aktifken platformu Unity'nin yerel PlatformEffector2D bileşeniyle
+    /// tek yönlü (alttan geçilir, üstten düşüldüğünde kesinlikle tutar) hale getirir.
+    /// </summary>
+    private void SyncOneWayEffector()
+    {
+        if (platformCollider == null) return;
+
+        bool enableOneWay = GameManager.Instance != null
+            && GameManager.Instance.IsSuperFeetActive
+            && !GameManager.Instance.IsRocketBoosting;
+
+        if (enableOneWay)
+        {
+            if (oneWayEffector == null)
+            {
+                oneWayEffector = GetComponent<PlatformEffector2D>();
+                if (oneWayEffector == null)
+                {
+                    oneWayEffector = gameObject.AddComponent<PlatformEffector2D>();
+                }
+                oneWayEffector.useOneWay = true;
+                oneWayEffector.useOneWayGrouping = false;
+                oneWayEffector.useColliderMask = false;
+                oneWayEffector.surfaceArc = 170f;
+                oneWayEffector.rotationalOffset = 0f;
+                oneWayEffector.useSideFriction = false;
+                oneWayEffector.useSideBounce = false;
+            }
+
+            if (!oneWayEffector.enabled) oneWayEffector.enabled = true;
+            if (!platformCollider.usedByEffector) platformCollider.usedByEffector = true;
+        }
+        else
+        {
+            if (platformCollider.usedByEffector) platformCollider.usedByEffector = false;
+            if (oneWayEffector != null && oneWayEffector.enabled) oneWayEffector.enabled = false;
+        }
     }
 
     void Update()
     {
+        SyncOneWayEffector();
         // 1. Dikey Hareket (GameManager'ın oyun ilerledikçe artan platform hızı)
         transform.Translate(Vector3.down * GameManager.globalPlatformSpeed * Time.deltaTime, Space.World);
 
