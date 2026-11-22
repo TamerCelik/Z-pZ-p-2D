@@ -58,14 +58,24 @@ public class SpaceMeteorSpawner : MonoBehaviour
         Camera cam = Camera.main;
         float halfH = cam != null ? cam.orthographicSize : 5f;
         float halfW = cam != null ? halfH * cam.aspect : 2.8f;
-        float safeX = Mathf.Max(1.0f, halfW - 0.55f);
+        float safeX = Mathf.Max(1.1f, halfW - 0.28f);
 
-        // %55 olasılıkla oyuncunun yakınına, %45 tamamen rastgele X'e nişan al
-        float spawnX = Random.Range(-safeX, safeX);
-        if (GameManager.Instance != null && GameManager.Instance.player != null && Random.value < 0.55f)
+        // %45 sol/sağ köşelerden, %30 oyuncunun yakınından, %25 tamamen rastgele X'ten gelsin
+        float spawnX;
+        float roll = Random.value;
+        if (roll < 0.45f)
+        {
+            float side = Random.value < 0.5f ? -1f : 1f;
+            spawnX = side * Random.Range(safeX * 0.60f, safeX);
+        }
+        else if (roll < 0.75f && GameManager.Instance != null && GameManager.Instance.player != null)
         {
             float px = GameManager.Instance.player.transform.position.x;
             spawnX = Mathf.Clamp(px + Random.Range(-0.65f, 0.65f), -safeX, safeX);
+        }
+        else
+        {
+            spawnX = Random.Range(-safeX, safeX);
         }
 
         // 1. Üst kenarda yanıp sönen tehlike uyarısı (!)
@@ -98,7 +108,10 @@ public class SpaceMeteorSpawner : MonoBehaviour
         // 2. Alevli piksel meteoru üstten fırlat
         float diff = Mathf.Clamp01((effectiveScore - spaceStartScore) / 1000f);
         float fallSpeed = Mathf.Lerp(baseFallSpeed, maxFallSpeed, diff) + Random.Range(-0.35f, 0.45f);
-        float driftX = Random.Range(-0.45f, 0.45f);
+        // Köşelerden gelen meteorlar ekran dışına taşmadan hafifçe içeri veya düz süzülsün
+        float driftX = (Mathf.Abs(spawnX) > safeX * 0.60f)
+            ? -Mathf.Sign(spawnX) * Random.Range(0.05f, 0.42f)
+            : Random.Range(-0.42f, 0.42f);
 
         GameObject meteorObj = new GameObject("SpaceMeteorHazard");
         meteorObj.transform.position = new Vector3(spawnX, halfH + 0.75f, 0f);
