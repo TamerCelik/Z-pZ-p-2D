@@ -1,17 +1,29 @@
-using UnityEngine;
+ï»¿using UnityEngine;
 using UnityEngine.SceneManagement;
 
 public class MenuManager : MonoBehaviour
 {
     public void StartGame()
     {
-        // "1" numaralý sahneyi yükle (Birazdan ayarlayacaðýz)
+        // OYNA butonuna basÄ±lÄ±nca hemen Ã¼stÃ¼nde TEKLÄ° / Ã‡Ä°FTLÄ° seÃ§eneklerini aÃ§ar
+        MultiplayerManager mp = MultiplayerManager.EnsureInstance();
+        if (mp != null)
+        {
+            mp.TogglePlayModeSelector();
+            return;
+        }
+
+        SceneManager.LoadScene(1);
+    }
+
+    public void StartSinglePlayerGame()
+    {
         SceneManager.LoadScene(1);
     }
 
     public void QuitGame()
     {
-        Debug.Log("Oyundan Çýkýldý!");
+        Debug.Log("Oyundan cikildi!");
         Application.Quit();
     }
 }
