@@ -355,15 +355,15 @@ public class PlatformSpawner : MonoBehaviour
     [SerializeField] private float rocketMinScore = 120f;
     private int platformsSinceLastRocket = 10;
 
-    [SerializeField] private float shieldSpawnChance = 0.035f;
-    [SerializeField] private int minPlatformsBetweenShields = 26;
-    [SerializeField] private float shieldMinScore = 150f;
-    private int platformsSinceLastShield = 12;
+    [SerializeField] private float shieldSpawnChance = 0.018f;
+    [SerializeField] private int minPlatformsBetweenShields = 38;
+    [SerializeField] private float shieldMinScore = 180f;
+    private int platformsSinceLastShield = 10;
 
-    [SerializeField] private float superFeetSpawnChance = 0.06f;
-    [SerializeField] private int minPlatformsBetweenSuperFeet = 18;
-    [SerializeField] private float superFeetMinScore = 80f;
-    private int platformsSinceLastSuperFeet = 12;
+    [SerializeField] private float superFeetSpawnChance = 0.032f;
+    [SerializeField] private int minPlatformsBetweenSuperFeet = 28;
+    [SerializeField] private float superFeetMinScore = 120f;
+    private int platformsSinceLastSuperFeet = 10;
 
     private bool TrySpawnPlatformPowerUp(GameObject platform, bool platformHasHeart)
     {

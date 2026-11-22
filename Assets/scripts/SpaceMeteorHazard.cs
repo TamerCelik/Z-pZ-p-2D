@@ -85,7 +85,7 @@ public class SpaceMeteorSpawner : MonoBehaviour
                 elapsed += Time.deltaTime;
                 float blink = 0.35f + 0.65f * Mathf.Abs(Mathf.Sin(elapsed * 18f));
                 float pulse = 0.92f + 0.16f * Mathf.Abs(Mathf.Sin(elapsed * 14f));
-                warnObj.transform.localScale = new Vector3(0.72f * pulse, 0.72f * pulse, 1f);
+                warnObj.transform.localScale = new Vector3(0.58f * pulse, 0.58f * pulse, 1f);
                 warnSr.color = new Color(1f, 0.38f, 0.25f, blink);
             }
             yield return null;
@@ -102,7 +102,7 @@ public class SpaceMeteorSpawner : MonoBehaviour
 
         GameObject meteorObj = new GameObject("SpaceMeteorHazard");
         meteorObj.transform.position = new Vector3(spawnX, halfH + 0.75f, 0f);
-        float scale = Random.Range(0.72f, 0.92f);
+        float scale = Random.Range(0.50f, 0.66f);
         meteorObj.transform.localScale = new Vector3(scale, scale, 1f);
 
         SpriteRenderer sr = meteorObj.AddComponent<SpriteRenderer>();
@@ -111,7 +111,7 @@ public class SpaceMeteorSpawner : MonoBehaviour
 
         CircleCollider2D col = meteorObj.AddComponent<CircleCollider2D>();
         col.isTrigger = true;
-        col.radius = 0.24f;
+        col.radius = 0.21f;
 
         // Arkadaki alev kuyruğu
         GameObject trailObj = new GameObject("MeteorFlameTrail");
