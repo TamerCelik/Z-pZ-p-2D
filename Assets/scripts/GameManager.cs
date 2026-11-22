@@ -179,8 +179,12 @@ public class GameManager : MonoBehaviour
             if (isRocketBoosting)
             {
                 rocketTimer -= Time.deltaTime;
-                score += Time.deltaTime * 42f;
-                globalPlatformSpeed = baseSpeed * rocketSpeedMultiplier;
+                float mult = MultiplayerManager.IsDuelActive
+                    ? MultiplayerManager.DuelRocketSpeedMultiplier
+                    : rocketSpeedMultiplier;
+                float scoreRate = MultiplayerManager.IsDuelActive ? 16f : 42f;
+                score += Time.deltaTime * scoreRate;
+                globalPlatformSpeed = baseSpeed * mult;
                 UpdateRocketVisuals();
 
                 if (rocketTimer <= 0f)
@@ -188,9 +192,18 @@ public class GameManager : MonoBehaviour
                     EndRocketBoost(baseSpeed);
                 }
             }
+            else if (MultiplayerManager.IsOpponentRocketSabotageActive)
+            {
+                // Rakip roket aldı! Bizim için oyun 1.38x hızlanır (ulaşılabilir ama heyecanlı sabotaj)
+                score += Time.deltaTime * 16f;
+                globalPlatformSpeed = baseSpeed * MultiplayerManager.DuelRocketSpeedMultiplier;
+            }
             else
             {
-                score += Time.deltaTime * 10f;
+                if (!MultiplayerManager.IsSpectating)
+                {
+                    score += Time.deltaTime * 10f;
+                }
                 globalPlatformSpeed = baseSpeed;
             }
 
@@ -431,6 +444,11 @@ public class GameManager : MonoBehaviour
         isRocketBoosting = true;
         rocketTimer = Mathf.Max(rocketTimer, rocketBoostDuration);
 
+        if (MultiplayerManager.IsDuelActive && MultiplayerManager.Instance != null)
+        {
+            MultiplayerManager.Instance.NotifyLocalRocketPickedUp();
+        }
+
         if (canKazanmaSesi != null)
         {
             if (audioSource == null) audioSource = GetComponent<AudioSource>();
@@ -625,7 +643,14 @@ public class GameManager : MonoBehaviour
 
         if (health <= 0)
         {
-            GameOver();
+            if (MultiplayerManager.IsDuelActive && MultiplayerManager.Instance != null)
+            {
+                MultiplayerManager.Instance.OnLocalPlayerEliminated((int)score);
+            }
+            else
+            {
+                GameOver();
+            }
         }
         else
         {
@@ -804,6 +829,10 @@ public class GameManager : MonoBehaviour
         EnsureContinueButtonUI();
         RefreshContinueButtonUI();
 
+        // Skoru Supabase global skor tablosuna gönder ve Game Over kupa butonunu hazırla
+        LeaderboardService.EnsureInstance().SubmitScore(highScore);
+        LeaderboardAndProfileUI.AttachToCurrentScene();
+
         Time.timeScale = 0;
     }
 
@@ -871,8 +900,9 @@ public class GameManager : MonoBehaviour
             Color.white,
             new Color(0.82f, 0.84f, 0.88f, 1f),
             new Color(0.82f, 0.84f, 0.88f, 1f));
-        continueButtonText.outlineWidth = 0.30f;
-        continueButtonText.outlineColor = new Color32(18, 12, 10, 255);
+        Shadow contShadow = txtObj.AddComponent<Shadow>();
+        contShadow.effectColor = new Color(0.06f, 0.04f, 0.03f, 0.90f);
+        contShadow.effectDistance = new Vector2(1.5f, -1.5f);
     }
 
     private void RefreshContinueButtonUI()
