@@ -62,6 +62,29 @@ public class PlatformSpawner : MonoBehaviour
     private float nextSpawnDistance = 1.7f;
     private int consecutiveSameSideCount = 0;
     private float lastDirection = 0f;
+    private System.Random duelLayoutRng;
+    private int spawnedPlatformCounter = 0;
+
+    private float NextLayoutValue()
+    {
+        if (MultiplayerManager.IsDuelActive && duelLayoutRng != null)
+            return (float)duelLayoutRng.NextDouble();
+        return Random.value;
+    }
+
+    private float NextLayoutRange(float min, float max)
+    {
+        if (MultiplayerManager.IsDuelActive && duelLayoutRng != null)
+            return min + (float)duelLayoutRng.NextDouble() * (max - min);
+        return Random.Range(min, max);
+    }
+
+    private int NextLayoutInt(int min, int maxExclusive)
+    {
+        if (MultiplayerManager.IsDuelActive && duelLayoutRng != null)
+            return duelLayoutRng.Next(min, maxExclusive);
+        return Random.Range(min, maxExclusive);
+    }
 
     void Start()
     {
@@ -79,13 +102,24 @@ public class PlatformSpawner : MonoBehaviour
             return firstSpawnedPlatform;
         }
 
+        if (MultiplayerManager.IsDuelActive && MultiplayerManager.Instance != null)
+        {
+            duelLayoutRng = new System.Random(MultiplayerManager.Instance.SharedSeed);
+            spawnedPlatformCounter = 0;
+        }
+        else
+        {
+            duelLayoutRng = null;
+            spawnedPlatformCounter = 0;
+        }
+
         if (skyCycleManager == null)
         {
             skyCycleManager = Object.FindAnyObjectByType<SkyCycleManager>();
         }
 
         CalculateLimits();
-        nextSpawnDistance = Random.Range(minDistance, maxDistance);
+        nextSpawnDistance = NextLayoutRange(minDistance, maxDistance);
         SpawnPlatform(isFirstPlatform: true);
         firstSpawnedPlatform = lastSpawnedPlatform;
         hasSpawnedFirstPlatform = true;
@@ -97,6 +131,13 @@ public class PlatformSpawner : MonoBehaviour
     /// </summary>
     private void CalculateLimits()
     {
+        if (MultiplayerManager.IsDuelActive)
+        {
+            // Farklı ekran oranlı iki telefonda platform X konumlarının birebir aynı olması için sabit güvenli sınır
+            xLimit = 1.55f;
+            return;
+        }
+
         Camera cam = Camera.main;
         if (cam != null)
         {
@@ -139,30 +180,30 @@ public class PlatformSpawner : MonoBehaviour
                 // 1: Orta hat (ekranın merkezine dönüş)
                 // 2: Dengeli yatay adım (rastgele sol ya da sağ)
                 // 3: Çapraz atlayış (ters tarafa geçiş)
-                int patternType = Random.Range(0, 4);
+                int patternType = NextLayoutInt(0, 4);
 
                 // Eğer son 2 platform üst üste aynı kenardaysa 3. platformu ortaya veya ters tarafa yönlendir
                 if (consecutiveSameSideCount >= 2)
                 {
-                    patternType = (Random.value > 0.4f) ? 1 : 3;
+                    patternType = (NextLayoutValue() > 0.4f) ? 1 : 3;
                 }
 
                 switch (patternType)
                 {
                     case 0: // Düz tırmanış / minik sapma (-0.55f ile +0.55f arası)
-                        candidateX = prevX + Random.Range(-0.55f, 0.55f);
+                        candidateX = prevX + NextLayoutRange(-0.55f, 0.55f);
                         break;
                     case 1: // Ekran ortası (-0.45f ile +0.45f)
-                        candidateX = Random.Range(-0.45f, 0.45f);
+                        candidateX = NextLayoutRange(-0.45f, 0.45f);
                         break;
                     case 2: // Orta boy adım (rastgele sağ veya sol)
-                        float stepDir = (Random.value > 0.5f) ? 1f : -1f;
-                        candidateX = prevX + (Random.Range(0.85f + movingMargin, 1.55f) * stepDir);
+                        float stepDir = (NextLayoutValue() > 0.5f) ? 1f : -1f;
+                        candidateX = prevX + (NextLayoutRange(0.85f + movingMargin, 1.55f) * stepDir);
                         break;
                     case 3: // Geniş geçiş (karşı tarafa)
                     default:
                         float crossDir = (prevX >= 0) ? -1f : 1f;
-                        candidateX = prevX + (Random.Range(1.35f + movingMargin, maxHorizontalStep) * crossDir);
+                        candidateX = prevX + (NextLayoutRange(1.35f + movingMargin, maxHorizontalStep) * crossDir);
                         break;
                 }
 
@@ -178,8 +219,17 @@ public class PlatformSpawner : MonoBehaviour
 
                 candidateX = Mathf.Clamp(candidateX, -xLimit, xLimit);
 
-                // Fiziksel çakışma kontrolü
-                Collider2D hit = Physics2D.OverlapBox(new Vector2(candidateX, transform.position.y), new Vector2(2.1f, 1.2f), 0f);
+                // Düello modunda her iki cihazda RNG sırasının %100 aynı kalması için fizik sorgusundan bağımsız deterministik seç;
+                // tek oyunculuda ise platform çakışma kontrolünü koru.
+                if (MultiplayerManager.IsDuelActive && duelLayoutRng != null)
+                {
+                    chosenX = candidateX;
+                    foundSafePosition = true;
+                    break;
+                }
+
+                // Fiziksel çakışma kontrolü (sadece platform katmanı 1<<6 ile kontrol et ki zıplayan karakter bozmasın)
+                Collider2D hit = Physics2D.OverlapBox(new Vector2(candidateX, transform.position.y), new Vector2(2.1f, 1.2f), 0f, 1 << 6);
                 if (hit == null)
                 {
                     chosenX = candidateX;
@@ -192,8 +242,8 @@ public class PlatformSpawner : MonoBehaviour
         // Eğer hiçbir güvenli konum bulunamazsa dengeli rastgele dağıt
         if (!foundSafePosition)
         {
-            float[] possibleSlots = new float[] { -xLimit * 0.7f, 0f, xLimit * 0.7f, Random.Range(-xLimit, xLimit) };
-            chosenX = possibleSlots[Random.Range(0, possibleSlots.Length)];
+            float[] possibleSlots = new float[] { -xLimit * 0.7f, 0f, xLimit * 0.7f, NextLayoutRange(-xLimit, xLimit) };
+            chosenX = possibleSlots[NextLayoutInt(0, possibleSlots.Length)];
         }
 
         // Aynı kenarda kalma takibi (duvara sıkışmayı engeller)
@@ -213,22 +263,40 @@ public class PlatformSpawner : MonoBehaviour
             lastDirection = 0f;
         }
 
+        int currentPlatformIndex = spawnedPlatformCounter++;
+        bool isDuelDeterministic = MultiplayerManager.IsDuelActive && duelLayoutRng != null;
+        float deterministicScore = isDuelDeterministic ? (currentPlatformIndex * 17f) : GameManager.currentScore;
+
         Vector2 spawnPos = new Vector2(chosenX, transform.position.y);
-        GameObject selectedPrefab = SelectPlatformPrefabForCurrentCycle();
+        GameObject selectedPrefab = isDuelDeterministic
+            ? SelectDeterministicDuelPrefab(deterministicScore)
+            : SelectPlatformPrefabForCurrentCycle();
         if (selectedPrefab == null) return;
 
         lastSpawnedPlatform = Instantiate(selectedPrefab, spawnPos, Quaternion.identity);
 
         // Skor arttıkça hareketli platform oranı %10'dan %60'a kadar kademeli artar
-        float progress = Mathf.Clamp01(GameManager.currentScore / 1000f);
+        float progress = Mathf.Clamp01(deterministicScore / 1000f);
         float currentMovingChance = Mathf.Lerp(baslangicHareketSans, maksimumHareketSans, progress);
 
         PlatformMovement pm = lastSpawnedPlatform.GetComponent<PlatformMovement>();
-        if (!isFirstPlatform && pm != null && Random.value < currentMovingChance)
+        if (pm != null)
         {
-            float randomSpeed = Random.Range(1.6f, 2.3f);
-            float randomDist = Random.Range(0.6f, 1.0f);
-            pm.SetupMovement(true, randomSpeed, randomDist);
+            if (isDuelDeterministic)
+            {
+                pm.AssignDuelDeterministicData(currentPlatformIndex, NextLayoutRange(0f, 6.28f));
+            }
+            else
+            {
+                pm.SetPlatformIndex(currentPlatformIndex);
+            }
+
+            if (!isFirstPlatform && NextLayoutValue() < currentMovingChance)
+            {
+                float randomSpeed = NextLayoutRange(1.6f, 2.3f);
+                float randomDist = NextLayoutRange(0.6f, 1.0f);
+                pm.SetupMovement(true, randomSpeed, randomDist);
+            }
         }
 
         // 1000 skordan sonra nadir olarak platform üzerinde can ikonu üret
@@ -259,7 +327,29 @@ public class PlatformSpawner : MonoBehaviour
         }
 
         // Bir sonraki platform için güvenli ve rahat dikey mesafe belirle (1.6f - 2.1f)
-        nextSpawnDistance = Random.Range(minDistance, maxDistance);
+        nextSpawnDistance = NextLayoutRange(minDistance, maxDistance);
+    }
+
+    private GameObject SelectDeterministicDuelPrefab(float deterministicScore)
+    {
+        float loopedScore = deterministicScore % 2000f;
+        GameObject[] pool = null;
+        if (loopedScore < 280f) pool = HasValidItem(sabahPrefabs) ? sabahPrefabs : platformPrefabs;
+        else if (loopedScore < 520f) pool = HasValidItem(oglePrefabs) ? oglePrefabs : platformPrefabs;
+        else if (loopedScore < 760f) pool = HasValidItem(aksamPrefabs) ? aksamPrefabs : platformPrefabs;
+        else if (loopedScore < 1200f) pool = HasValidItem(gecePrefabs) ? gecePrefabs : platformPrefabs;
+        else pool = HasValidItem(uzayPrefabs) ? uzayPrefabs : platformPrefabs;
+
+        if (!HasValidItem(pool)) pool = platformPrefabs;
+        if (!HasValidItem(pool)) return null;
+
+        int idx = NextLayoutInt(0, pool.Length);
+        if (pool[idx] != null) return pool[idx];
+        for (int i = 0; i < pool.Length; i++)
+        {
+            if (pool[i] != null) return pool[i];
+        }
+        return null;
     }
 
     /// <summary>
