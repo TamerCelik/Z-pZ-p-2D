@@ -27,6 +27,26 @@ public class PlatformMovement : MonoBehaviour
     /// </summary>
     public float CurrentHorizontalVelocity { get; private set; }
 
+    /// <summary>
+    /// Düello modunda her iki cihazda birebir aynı olan deterministik platform sıra numarası (-1: spawner dışı).
+    /// </summary>
+    public int PlatformIndex { get; private set; } = -1;
+
+    private bool useDeterministicDuelClock = false;
+
+    public void SetPlatformIndex(int index)
+    {
+        PlatformIndex = index;
+    }
+
+    public void AssignDuelDeterministicData(int index, float phaseOffset)
+    {
+        PlatformIndex = index;
+        randomOffset = phaseOffset;
+        useDeterministicDuelClock = true;
+        screenLimit = 1.55f;
+    }
+
     void Awake()
     {
         platformCollider = GetComponent<Collider2D>();
@@ -35,14 +55,20 @@ public class PlatformMovement : MonoBehaviour
     void Start()
     {
         startX = transform.position.x;
-        // Farklı platformlar aynı anda aynı yöne gitmesin diye rastgele faz farkı
-        randomOffset = Random.Range(0f, 6.28f);
+        if (!useDeterministicDuelClock)
+        {
+            // Farklı platformlar aynı anda aynı yöne gitmesin diye rastgele faz farkı
+            randomOffset = Random.Range(0f, 6.28f);
+        }
 
         Camera cam = Camera.main;
         if (cam != null)
         {
-            float camHalfWidth = cam.orthographicSize * cam.aspect;
-            screenLimit = Mathf.Clamp(camHalfWidth - 0.7f, 1.0f, 2.3f);
+            if (!useDeterministicDuelClock)
+            {
+                float camHalfWidth = cam.orthographicSize * cam.aspect;
+                screenLimit = Mathf.Clamp(camHalfWidth - 0.7f, 1.0f, 2.3f);
+            }
 
             // Platform barın arkasında tamamen kaybolup ekranın en altına inince silinir
             destroyY = -cam.orthographicSize - 0.5f;
@@ -106,7 +132,8 @@ public class PlatformMovement : MonoBehaviour
         if (isMovingHorizontal)
         {
             float prevX = transform.position.x;
-            float newX = startX + Mathf.Sin((Time.time * horizontalSpeed) + randomOffset) * horizontalDistance;
+            float clock = useDeterministicDuelClock ? MultiplayerManager.DuelMatchElapsedTime : Time.time;
+            float newX = startX + Mathf.Sin((clock * horizontalSpeed) + randomOffset) * horizontalDistance;
             newX = Mathf.Clamp(newX, -screenLimit, screenLimit);
             transform.position = new Vector3(newX, transform.position.y, transform.position.z);
             CurrentHorizontalVelocity = Time.deltaTime > 0.0001f ? (newX - prevX) / Time.deltaTime : 0f;
