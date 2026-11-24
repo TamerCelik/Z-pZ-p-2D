@@ -1,6 +1,10 @@
 using System;
 using System.Collections;
+using System.Collections.Concurrent;
+using System.Net.WebSockets;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using TMPro;
 using UnityEngine;
 using UnityEngine.Networking;
@@ -20,9 +24,48 @@ public class MultiplayerManager : MonoBehaviour
 {
     private const string SupabaseUrl = "https://bgnjapojaevoqhwbndye.supabase.co";
     private const string SupabasePublishableKey = "sb_publishable_UGQr2dJjLeF3Yw_OPpFD7w_xQ4Ja3B1";
+    private const string SupabaseRealtimeWsUrl = "wss://bgnjapojaevoqhwbndye.supabase.co/realtime/v1/websocket?apikey=" + SupabasePublishableKey + "&vsn=1.0.0";
 
     public const float DuelRocketSpeedMultiplier = 1.38f;
     public const int DuelWinCoinReward = 30;
+
+    [Serializable]
+    private class WsStateData
+    {
+        public string s;
+        public int seq;
+        public float t;
+        public float x;
+        public float y;
+        public float vx;
+        public float vy;
+        public int plat;
+        public int hp;
+        public int sc;
+        public bool alv;
+        public bool rkt;
+        public bool trig_rkt;
+        public bool sf;
+        public bool sh;
+        public bool jmp;
+        public string nm;
+        public string ch;
+        public int sd;
+    }
+
+    [Serializable]
+    private class WsIncomingOuter
+    {
+        public string type;
+        public WsStateData payload;
+    }
+
+    [Serializable]
+    private class WsIncomingEnvelope
+    {
+        public string topic;
+        public WsIncomingOuter payload;
+    }
 
     [Serializable]
     private class CreateRoomPayload
@@ -94,6 +137,7 @@ public class MultiplayerManager : MonoBehaviour
     public static bool IsDuelActive => Instance != null && Instance.inActiveDuel;
     public static bool IsSpectating => Instance != null && Instance.inActiveDuel && Instance.localEliminated && !Instance.duelFinished;
     public static bool IsOpponentRocketSabotageActive => Instance != null && Instance.inActiveDuel && Instance.opponentRocketTimer > 0f;
+    public static float DuelMatchElapsedTime { get; private set; }
 
     public string CurrentRoomCode { get; private set; } = string.Empty;
     public int SharedSeed { get; private set; } = 12345;
@@ -119,19 +163,71 @@ public class MultiplayerManager : MonoBehaviour
     private float syncPollingTimer;
     private bool syncInFlight;
 
-    // Bot simülasyonu
+    // Bot gerçek fizik & yapay zeka simülasyonu
     private float botSimTime;
+    private float botExactScore;
     private float botNextRocketTime;
-    private float botNextHitTime;
+    private float botNextMistakeTime;
+    private float botMistakeTimer;
+    private float botMistakeOffset;
+    private float botSelfRocketTimer;
+    private Rigidbody2D botRb;
+    private BoxCollider2D botCollider;
+    private Transform botFeetTransform;
+    private GameObject botRocketFlameObj;
+    private SpriteRenderer botRocketFlameRenderer;
+    private LayerMask botGroundMask = 1 << 6;
+    private float botMoveSpeed = 5.5f;
+    private float botJumpForce = 5.2f;
+    private float botBaseGravityScale = 1.5f;
+    private float botFootRadius = 0.28f;
+    private float botWrapThreshold = 3.0f;
+    private float botCurrentMoveInput;
+    private float botJumpCooldown;
+    private bool botGrounded;
+    private bool botWasGrounded = true;
+    private bool botPlacedOnStartPlatform;
+    private Vector2 botVisualStretch = Vector2.one;
 
-    // Rakip karakter objesi
+    // Rakip karakter objesi ve Gerçek Zamanlı WebSocket + Sıfır-Işınlanma Senkronizasyonu
     private GameObject opponentAvatarObj;
     private SpriteRenderer opponentSpriteRenderer;
     private TextMeshPro opponentNameTagTmp;
     private Sprite[] opponentIdleFrames;
+    private Sprite[] opponentCornerFrames;
     private float opponentAnimTimer;
+    private float opponentCornerAnimTimer;
     private int opponentAnimFrame;
     private float opponentFacing = 1f;
+    private Vector2 remoteSmoothVel;
+    private Vector2 remoteRenderPos;
+    private bool remotePlacedOnStartPlat = false;
+    private int remotePacketPlatIdx = 0;
+    private float remotePacketX = 0f;
+    private float remotePacketY = -1.5f;
+    private float remotePacketVx = 0f;
+    private float remotePacketVy = 0f;
+    private float remoteWorldYOffset = 0f;
+    private bool remoteHasWorldYOffset = false;
+    private float lastRemotePacketTime = 0f;
+    private bool remoteRocketActive = false;
+    private int remoteLastSeq = 0;
+
+    // Supabase Realtime WebSocket (25 Hz, ~50ms gecikme)
+    private ClientWebSocket realtimeWs;
+    private CancellationTokenSource wsCts;
+    private readonly ConcurrentQueue<string> wsIncomingQueue = new ConcurrentQueue<string>();
+    private volatile bool wsJoinedTopic = false;
+    private volatile bool wsSendBusy = false;
+    private string wsConnectedRoomCode = string.Empty;
+    private int wsMsgRefCounter = 1;
+    private int localBroadcastSeq = 0;
+    private float wsBroadcastTimer = 0f;
+    private float wsHeartbeatTimer = 15f;
+    private float lastWsPacketReceivedTime = -99f;
+    private bool prevLocalGroundedForNet = true;
+    private bool pendingLocalJumpNet = false;
+    private bool pendingWsRocketTrigger = false;
 
     // Menü UI
     private TMP_FontAsset arcadeFont;
@@ -198,7 +294,13 @@ public class MultiplayerManager : MonoBehaviour
     private void OnDestroy()
     {
         SceneManager.sceneLoaded -= OnSceneLoaded;
+        CloseRealtimeSocket();
         if (Instance == this) Instance = null;
+    }
+
+    private void OnApplicationQuit()
+    {
+        CloseRealtimeSocket();
     }
 
     private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
@@ -208,6 +310,7 @@ public class MultiplayerManager : MonoBehaviour
 
         if (inActiveDuel && scene.name == "SampleScene")
         {
+            DuelMatchElapsedTime = 0f;
             UnityEngine.Random.InitState(SharedSeed);
             SetupGameplayDuelScene();
         }
@@ -225,10 +328,14 @@ public class MultiplayerManager : MonoBehaviour
 
     private void Update()
     {
+        // Lobi dahil her sahnede gelen canlı WebSocket mesajlarını işle ve heartbeat gönder
+        PumpRealtimeWebSocket(Time.unscaledDeltaTime);
+
         if (!inActiveDuel || SceneManager.GetActiveScene().name != "SampleScene")
             return;
 
         float dt = Time.deltaTime;
+        DuelMatchElapsedTime += dt;
 
         if (opponentRocketTimer > 0f)
         {
@@ -255,10 +362,36 @@ public class MultiplayerManager : MonoBehaviour
         }
         else
         {
+            EnsureRealtimeSocketConnected(CurrentRoomCode);
+
+            // Yerel zıplama anını yakala ki 40ms paketler arasında bile zıplama kaçmasın
+            GameManager gmLocal = GameManager.Instance;
+            PlayerController pcLocal = (gmLocal != null && gmLocal.player != null) ? gmLocal.player.GetComponent<PlayerController>() : null;
+            Rigidbody2D rbLocal = (gmLocal != null && gmLocal.player != null) ? gmLocal.player.GetComponent<Rigidbody2D>() : null;
+            if (pcLocal != null)
+            {
+                bool nowGrounded = pcLocal.IsGrounded;
+                if (prevLocalGroundedForNet && !nowGrounded && rbLocal != null && rbLocal.linearVelocity.y > 1.2f)
+                {
+                    pendingLocalJumpNet = true;
+                }
+                prevLocalGroundedForNet = nowGrounded;
+            }
+
+            // 1) Birincil Kanal: 25 Hz (her 0.04 sn) düşük gecikmeli (~50ms) Supabase Realtime WebSocket Broadcast!
+            wsBroadcastTimer -= Time.unscaledDeltaTime;
+            if (wsBroadcastTimer <= 0f)
+            {
+                wsBroadcastTimer = 0.04f;
+                SendGameplayWsBroadcast();
+            }
+
+            // 2) İkincil Kanal: Oda skor/durum kaydı (ve WebSocket kapalıysa yedek konum senkronu)
+            bool wsLive = wsJoinedTopic && (Time.unscaledTime - lastWsPacketReceivedTime < 1.2f);
             syncPollingTimer -= Time.unscaledDeltaTime;
             if (syncPollingTimer <= 0f && !syncInFlight)
             {
-                syncPollingTimer = 0.14f;
+                syncPollingTimer = wsLive ? 0.75f : 0.08f;
                 StartCoroutine(SyncMatchStateRoutine());
             }
         }
@@ -275,6 +408,8 @@ public class MultiplayerManager : MonoBehaviour
     {
         if (!inActiveDuel) return;
         pendingLocalRocketTrigger = true;
+        pendingWsRocketTrigger = true;
+        if (!IsBotMatch) SendGameplayWsBroadcast();
     }
 
     public void OnLocalPlayerEliminated(int finalLocalScore)
@@ -314,6 +449,7 @@ public class MultiplayerManager : MonoBehaviour
 
     public void LeaveDuelAndReturnToMenu()
     {
+        CloseRealtimeSocket();
         if (!string.IsNullOrEmpty(CurrentRoomCode) && !IsBotMatch)
         {
             StartCoroutine(LeaveRoomRoutine(CurrentRoomCode));
@@ -535,6 +671,10 @@ public class MultiplayerManager : MonoBehaviour
             StopCoroutine(lobbyWaitCoroutine);
             lobbyWaitCoroutine = null;
         }
+        if (!inActiveDuel)
+        {
+            CloseRealtimeSocket();
+        }
         if (!string.IsNullOrEmpty(CurrentRoomCode) && !inActiveDuel)
         {
             StartCoroutine(LeaveRoomRoutine(CurrentRoomCode));
@@ -619,14 +759,16 @@ public class MultiplayerManager : MonoBehaviour
             SharedSeed = resp.seed;
             IsHost = true;
             IsBotMatch = false;
+            EnsureRealtimeSocketConnected(CurrentRoomCode);
 
             if (lobbyRoomCodeBigText != null) lobbyRoomCodeBigText.text = $"ODA KODU: {CurrentRoomCode}";
             if (lobbyStatusText != null) lobbyStatusText.text = "Arkadaşının bu kodu girip katılması bekleniyor...";
         }
 
-        while (!string.IsNullOrEmpty(CurrentRoomCode))
+        while (!string.IsNullOrEmpty(CurrentRoomCode) && !inActiveDuel)
         {
-            yield return new WaitForSecondsRealtime(1.0f);
+            yield return new WaitForSecondsRealtime(0.22f);
+            if (inActiveDuel) yield break;
 
             SyncStatePayload poll = new SyncStatePayload
             {
@@ -691,6 +833,7 @@ public class MultiplayerManager : MonoBehaviour
                 SharedSeed = resp.seed;
                 IsHost = resp.is_host;
                 IsBotMatch = false;
+                EnsureRealtimeSocketConnected(CurrentRoomCode);
 
                 if (resp.status == "playing" && !string.IsNullOrEmpty(resp.opp_name))
                 {
@@ -705,9 +848,10 @@ public class MultiplayerManager : MonoBehaviour
             }
         }
 
-        while (!string.IsNullOrEmpty(CurrentRoomCode))
+        while (!string.IsNullOrEmpty(CurrentRoomCode) && !inActiveDuel)
         {
-            yield return new WaitForSecondsRealtime(1.0f);
+            yield return new WaitForSecondsRealtime(0.22f);
+            if (inActiveDuel) yield break;
             SyncStatePayload poll = new SyncStatePayload
             {
                 p_room_code = CurrentRoomCode,
@@ -777,6 +921,7 @@ public class MultiplayerManager : MonoBehaviour
             IsBotMatch = false;
             OpponentName = string.IsNullOrEmpty(resp.opp_name) ? "Rakip" : resp.opp_name;
             OpponentCharId = string.IsNullOrEmpty(resp.opp_char) ? CharacterShopData.PinkManId : resp.opp_char;
+            EnsureRealtimeSocketConnected(CurrentRoomCode);
 
             BeginDuelMatch();
         }
@@ -795,6 +940,9 @@ public class MultiplayerManager : MonoBehaviour
         duelFinished = false;
         rewardGranted = false;
         pendingLocalRocketTrigger = false;
+        pendingWsRocketTrigger = false;
+        pendingLocalJumpNet = false;
+        prevLocalGroundedForNet = true;
         opponentRocketTimer = 0f;
 
         OpponentHealth = 3;
@@ -802,11 +950,44 @@ public class MultiplayerManager : MonoBehaviour
         OpponentAlive = true;
         OpponentSuperFeet = false;
         OpponentShield = false;
-        OpponentTargetPos = new Vector2(0.45f, -1.5f);
+        OpponentTargetPos = new Vector2(0.0f, -1.5f);
+        DuelMatchElapsedTime = 0f;
+
+        remoteSmoothVel = Vector2.zero;
+        remoteRenderPos = new Vector2(0f, -1.5f);
+        remotePlacedOnStartPlat = false;
+        remotePacketPlatIdx = 0;
+        remotePacketX = 0f;
+        remotePacketY = -1.5f;
+        remotePacketVx = 0f;
+        remotePacketVy = 0f;
+        remoteWorldYOffset = 0f;
+        remoteHasWorldYOffset = false;
+        lastRemotePacketTime = Time.unscaledTime;
+        lastWsPacketReceivedTime = -99f;
+        remoteRocketActive = false;
+        remoteLastSeq = 0;
+        localBroadcastSeq = 0;
+        wsBroadcastTimer = 0f;
+
+        if (!IsBotMatch && !string.IsNullOrEmpty(CurrentRoomCode))
+        {
+            EnsureRealtimeSocketConnected(CurrentRoomCode);
+        }
 
         botSimTime = 0f;
-        botNextRocketTime = UnityEngine.Random.Range(12f, 18f);
-        botNextHitTime = UnityEngine.Random.Range(16f, 24f);
+        botExactScore = 0f;
+        botSelfRocketTimer = 0f;
+        botMistakeTimer = 0f;
+        botMistakeOffset = 0f;
+        botCurrentMoveInput = 0f;
+        botJumpCooldown = 0.12f;
+        botGrounded = false;
+        botWasGrounded = true;
+        botPlacedOnStartPlatform = false;
+        botVisualStretch = Vector2.one;
+        botNextRocketTime = UnityEngine.Random.Range(15f, 23f);
+        botNextMistakeTime = UnityEngine.Random.Range(20f, 30f);
 
         Time.timeScale = 1f;
         SceneManager.LoadScene("SampleScene");
@@ -830,20 +1011,34 @@ public class MultiplayerManager : MonoBehaviour
     private void SpawnOpponentAvatar()
     {
         if (opponentAvatarObj != null) Destroy(opponentAvatarObj);
-
-        opponentAvatarObj = new GameObject("RemoteOpponentAvatar");
-        opponentAvatarObj.transform.localScale = new Vector3(1.80f, 1.42f, 1f);
+        botRb = null;
+        botCollider = null;
+        botFeetTransform = null;
+        botRocketFlameObj = null;
+        botRocketFlameRenderer = null;
+        botPlacedOnStartPlatform = false;
 
         GameManager gm = GameManager.Instance != null ? GameManager.Instance : FindFirstObjectByType<GameManager>();
+        PlayerController pc = gm != null && gm.player != null
+            ? gm.player.GetComponent<PlayerController>()
+            : FindFirstObjectByType<PlayerController>();
+
+        Vector3 baseScale = (gm != null && gm.player != null)
+            ? new Vector3(Mathf.Abs(gm.player.transform.localScale.x), Mathf.Abs(gm.player.transform.localScale.y), 1f)
+            : new Vector3(1.805f, 1.422f, 1f);
+
+        opponentAvatarObj = new GameObject("RemoteOpponentAvatar");
+        opponentAvatarObj.transform.localScale = baseScale;
+
         Vector3 startPos = (gm != null && gm.player != null)
-            ? gm.player.transform.position + new Vector3(0.35f, 0f, 0f)
-            : new Vector3(0.35f, -1.5f, 0f);
+            ? gm.player.transform.position + new Vector3(0.24f, 0.05f, 0f)
+            : new Vector3(0.24f, -1.5f, 0f);
         opponentAvatarObj.transform.position = startPos;
         OpponentTargetPos = startPos;
 
         opponentSpriteRenderer = opponentAvatarObj.AddComponent<SpriteRenderer>();
         opponentSpriteRenderer.sortingOrder = 8;
-        opponentSpriteRenderer.color = new Color(0.88f, 0.96f, 1.00f, 0.86f);
+        opponentSpriteRenderer.color = new Color(1f, 1f, 1f, 0.88f);
 
         CharacterShopConfig cfg = CharacterShopConfig.Load();
         if (cfg != null)
@@ -854,6 +1049,62 @@ public class MultiplayerManager : MonoBehaviour
                 opponentIdleFrames = entry.idleFrames;
                 opponentSpriteRenderer.sprite = opponentIdleFrames[0];
             }
+        }
+        LoadOpponentCornerSprites(OpponentCharId);
+
+        if (pc != null)
+        {
+            botMoveSpeed = pc.moveSpeed;
+            botJumpForce = pc.jumpForce;
+            botFootRadius = pc.ayakCapi;
+            if (pc.zeminKatmani.value != 0) botGroundMask = pc.zeminKatmani;
+        }
+
+        // Bot maçındaysa yerel oyuncuyla birebir aynı gerçek Rigidbody2D + BoxCollider2D fiziğini kur
+        if (IsBotMatch)
+        {
+            BoxCollider2D playerBox = (gm != null && gm.player != null) ? gm.player.GetComponent<BoxCollider2D>() : null;
+            Rigidbody2D playerRb = (gm != null && gm.player != null) ? gm.player.GetComponent<Rigidbody2D>() : null;
+
+            botCollider = opponentAvatarObj.AddComponent<BoxCollider2D>();
+            if (playerBox != null)
+            {
+                botCollider.size = playerBox.size;
+                botCollider.offset = playerBox.offset;
+                botCollider.sharedMaterial = playerBox.sharedMaterial;
+            }
+            else
+            {
+                botCollider.size = new Vector2(0.24167f, 0.28308f);
+                botCollider.offset = new Vector2(0.00705f, -0.03323f);
+            }
+
+            // Sadece zemin (platform) katmanıyla çarpış; yerel oyuncu, coin, power-up ve meteorların içinden geç!
+            botCollider.includeLayers = botGroundMask;
+            botCollider.excludeLayers = ~botGroundMask.value;
+            botCollider.callbackLayers = 0;
+            if (playerBox != null)
+            {
+                Physics2D.IgnoreCollision(botCollider, playerBox, true);
+            }
+
+            botBaseGravityScale = playerRb != null ? playerRb.gravityScale : 1.5f;
+            botRb = opponentAvatarObj.AddComponent<Rigidbody2D>();
+            botRb.bodyType = RigidbodyType2D.Dynamic;
+            botRb.mass = playerRb != null ? playerRb.mass : 1f;
+            botRb.linearDamping = 0f;
+            botRb.angularDamping = 0.05f;
+            botRb.gravityScale = botBaseGravityScale;
+            botRb.constraints = RigidbodyConstraints2D.FreezeRotation;
+            botRb.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
+            botRb.interpolation = RigidbodyInterpolation2D.Interpolate;
+
+            GameObject feetObj = new GameObject("BotFeetPoint");
+            feetObj.transform.SetParent(opponentAvatarObj.transform, false);
+            feetObj.transform.localPosition = (pc != null && pc.ayakNoktasi != null)
+                ? pc.ayakNoktasi.localPosition
+                : new Vector3(-0.054f, -0.158f, 0f);
+            botFeetTransform = feetObj.transform;
         }
 
         // Tepesindeki "Rakip Adı + CAN: 3" Etiketi
@@ -869,6 +1120,37 @@ public class MultiplayerManager : MonoBehaviour
         opponentNameTagTmp.color = new Color(1f, 0.94f, 0.42f, 1f);
         opponentNameTagTmp.sortingOrder = 25;
         opponentNameTagTmp.text = $"{OpponentName}\nCAN: 3";
+    }
+
+    private void LoadOpponentCornerSprites(string charId)
+    {
+        opponentCornerFrames = null;
+        Texture2D tex = Resources.Load<Texture2D>("Characters/corner_hang_" + charId);
+        if (tex == null) tex = Resources.Load<Texture2D>("Characters/corner_hang_pink_man");
+        if (tex == null || tex.height <= 0) return;
+
+        float cornerPpu = 114f;
+        if (charId == CharacterShopData.NinjaFrogId || charId == CharacterShopData.VirtualGuyId)
+        {
+            cornerPpu = 88f;
+        }
+        else if (charId == CharacterShopData.MaskDudeId)
+        {
+            cornerPpu = 90f;
+        }
+
+        int frameSize = tex.height;
+        int count = Mathf.Max(1, tex.width / frameSize);
+        opponentCornerFrames = new Sprite[count];
+        Vector2 pivot = new Vector2(0.5f, 0.5f);
+        for (int i = 0; i < count; i++)
+        {
+            opponentCornerFrames[i] = Sprite.Create(
+                tex,
+                new Rect(i * frameSize, 0f, frameSize, frameSize),
+                pivot,
+                cornerPpu);
+        }
     }
 
     private void BuildGameplayDuelHUD(Transform canvasTr)
@@ -958,8 +1240,334 @@ public class MultiplayerManager : MonoBehaviour
     }
 
     // =========================================================================
-    // 5. CANLI SENKRONİZASYON, BOT SİMÜLASYONU VE GÖRSEL GÜNCELLEME
+    // 5. GERÇEK ZAMANLI WEBSOCKET (25 HZ) + YEDEK HTTP SENKRON & BOT SİMÜLASYONU
     // =========================================================================
+    private void EnsureRealtimeSocketConnected(string roomCode)
+    {
+        if (string.IsNullOrEmpty(roomCode) || roomCode == "BOT" || IsBotMatch)
+            return;
+
+        if (realtimeWs != null &&
+            wsConnectedRoomCode == roomCode &&
+            (realtimeWs.State == WebSocketState.Open || realtimeWs.State == WebSocketState.Connecting))
+        {
+            return;
+        }
+
+        CloseRealtimeSocket();
+        wsConnectedRoomCode = roomCode;
+        wsJoinedTopic = false;
+        wsSendBusy = false;
+        wsCts = new CancellationTokenSource();
+        realtimeWs = new ClientWebSocket();
+        _ = ConnectAndReceiveWsAsync(realtimeWs, roomCode, wsCts.Token);
+    }
+
+    private void CloseRealtimeSocket()
+    {
+        wsJoinedTopic = false;
+        wsSendBusy = false;
+        wsConnectedRoomCode = string.Empty;
+
+        if (wsCts != null)
+        {
+            try { wsCts.Cancel(); } catch { }
+            try { wsCts.Dispose(); } catch { }
+            wsCts = null;
+        }
+
+        if (realtimeWs != null)
+        {
+            try { realtimeWs.Dispose(); } catch { }
+            realtimeWs = null;
+        }
+
+        while (wsIncomingQueue.TryDequeue(out _)) { }
+    }
+
+    private async Task ConnectAndReceiveWsAsync(ClientWebSocket ws, string roomCode, CancellationToken ct)
+    {
+        try
+        {
+            await ws.ConnectAsync(new Uri(SupabaseRealtimeWsUrl), ct).ConfigureAwait(false);
+            if (ws.State != WebSocketState.Open || ct.IsCancellationRequested)
+                return;
+
+            string topic = "realtime:duel_" + roomCode;
+            string joinMsg = "{\"topic\":\"" + topic + "\",\"event\":\"phx_join\",\"payload\":{\"config\":{\"broadcast\":{\"self\":false,\"ack\":false}}},\"ref\":\"1\"}";
+            byte[] joinBytes = Encoding.UTF8.GetBytes(joinMsg);
+            await ws.SendAsync(new ArraySegment<byte>(joinBytes), WebSocketMessageType.Text, true, ct).ConfigureAwait(false);
+            wsJoinedTopic = true;
+
+            byte[] buffer = new byte[4096];
+            StringBuilder sb = new StringBuilder(1024);
+
+            while (ws.State == WebSocketState.Open && !ct.IsCancellationRequested)
+            {
+                sb.Clear();
+                WebSocketReceiveResult result;
+                do
+                {
+                    result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), ct).ConfigureAwait(false);
+                    if (result.MessageType == WebSocketMessageType.Close)
+                        return;
+                    sb.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
+                }
+                while (!result.EndOfMessage);
+
+                if (sb.Length > 0)
+                {
+                    wsIncomingQueue.Enqueue(sb.ToString());
+                }
+            }
+        }
+        catch
+        {
+            wsJoinedTopic = false;
+        }
+    }
+
+    private void SendWsRawFireAndForget(string json)
+    {
+        ClientWebSocket ws = realtimeWs;
+        CancellationTokenSource cts = wsCts;
+        if (ws == null || cts == null || ws.State != WebSocketState.Open || wsSendBusy)
+            return;
+
+        wsSendBusy = true;
+        byte[] bytes = Encoding.UTF8.GetBytes(json);
+        _ = SendBytesAsync(ws, bytes, cts.Token);
+    }
+
+    private async Task SendBytesAsync(ClientWebSocket ws, byte[] bytes, CancellationToken ct)
+    {
+        try
+        {
+            await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, ct).ConfigureAwait(false);
+        }
+        catch
+        {
+            wsJoinedTopic = false;
+        }
+        finally
+        {
+            wsSendBusy = false;
+        }
+    }
+
+    private void SendGameplayWsBroadcast()
+    {
+        if (!wsJoinedTopic || realtimeWs == null || realtimeWs.State != WebSocketState.Open || string.IsNullOrEmpty(CurrentRoomCode))
+            return;
+
+        GameManager gm = GameManager.Instance;
+        Vector3 myPos = (gm != null && gm.player != null) ? gm.player.transform.position : Vector3.zero;
+        Rigidbody2D rb = (gm != null && gm.player != null) ? gm.player.GetComponent<Rigidbody2D>() : null;
+        PlayerController pc = (gm != null && gm.player != null) ? gm.player.GetComponent<PlayerController>() : null;
+
+        float vx = rb != null ? rb.linearVelocity.x : 0f;
+        float vy = rb != null ? rb.linearVelocity.y : 0f;
+        bool localOnRocket = gm != null && gm.IsRocketBoosting;
+        int myHealth = gm != null ? Mathf.Max(0, gm.health) : 3;
+        int myScore = Mathf.RoundToInt(GameManager.currentScore);
+
+        int platIdx = -1;
+        float sendX = myPos.x;
+        float sendVx = vx;
+
+        if (pc != null && pc.IsGrounded && !localOnRocket && pc.CurrentStandingPlatform != null && pc.CurrentStandingPlatform.PlatformIndex >= 0)
+        {
+            PlatformMovement sp = pc.CurrentStandingPlatform;
+            platIdx = sp.PlatformIndex;
+            sendX = Mathf.Clamp(myPos.x - sp.transform.position.x, -0.88f, 0.88f);
+            sendVx = vx - (sp.isMovingHorizontal ? sp.CurrentHorizontalVelocity : 0f);
+            vy = 0f;
+        }
+
+        bool jumpedNow = pendingLocalJumpNet;
+        pendingLocalJumpNet = false;
+
+        bool trigRocket = pendingWsRocketTrigger;
+        pendingWsRocketTrigger = false;
+
+        string secret = GetDeviceSecret();
+        string shortId = secret.Length > 8 ? secret.Substring(0, 8) : secret;
+
+        WsStateData data = new WsStateData
+        {
+            s = shortId,
+            seq = ++localBroadcastSeq,
+            t = DuelMatchElapsedTime,
+            x = sendX,
+            y = myPos.y,
+            vx = Mathf.Clamp(sendVx, -12f, 12f),
+            vy = Mathf.Clamp(vy, -30f, 30f),
+            plat = platIdx,
+            hp = myHealth,
+            sc = myScore,
+            alv = !localEliminated && myHealth > 0,
+            rkt = localOnRocket,
+            trig_rkt = trigRocket,
+            sf = gm != null && gm.IsSuperFeetActive,
+            sh = gm != null && gm.HasShield,
+            jmp = jumpedNow,
+            nm = LeaderboardService.EnsureInstance().CurrentUsername,
+            ch = CharacterShopData.GetSelectedCharacterId(),
+            sd = SharedSeed
+        };
+
+        string topic = "realtime:duel_" + CurrentRoomCode;
+        int msgRef = ++wsMsgRefCounter;
+        string envelope = "{\"topic\":\"" + topic + "\",\"event\":\"broadcast\",\"payload\":{\"type\":\"broadcast\",\"event\":\"st\",\"payload\":" + JsonUtility.ToJson(data) + "},\"ref\":\"" + msgRef + "\"}";
+        SendWsRawFireAndForget(envelope);
+    }
+
+    private void PumpRealtimeWebSocket(float unscaledDt)
+    {
+        if (realtimeWs != null && realtimeWs.State == WebSocketState.Open)
+        {
+            wsHeartbeatTimer -= unscaledDt;
+            if (wsHeartbeatTimer <= 0f)
+            {
+                wsHeartbeatTimer = 18f;
+                int hbRef = ++wsMsgRefCounter;
+                SendWsRawFireAndForget("{\"topic\":\"phoenix\",\"event\":\"heartbeat\",\"payload\":{},\"ref\":\"" + hbRef + "\"}");
+            }
+        }
+
+        string mySecret = GetDeviceSecret();
+        string myShortId = mySecret.Length > 8 ? mySecret.Substring(0, 8) : mySecret;
+
+        while (wsIncomingQueue.TryDequeue(out string raw))
+        {
+            if (string.IsNullOrEmpty(raw) || !raw.Contains("\"broadcast\"") || !raw.Contains("\"seq\":"))
+                continue;
+
+            WsIncomingEnvelope env = null;
+            try
+            {
+                env = JsonUtility.FromJson<WsIncomingEnvelope>(raw);
+            }
+            catch
+            {
+                continue;
+            }
+
+            WsStateData d = env != null && env.payload != null ? env.payload.payload : null;
+            if (d == null || d.s == myShortId)
+                continue;
+
+            // Lobide bekleyen Host, karşı oyuncu odaya girip ilk paketi attığı anda 50ms içinde maça başlasın!
+            if (!inActiveDuel && !string.IsNullOrEmpty(CurrentRoomCode) && !IsBotMatch)
+            {
+                if (!string.IsNullOrEmpty(d.nm)) OpponentName = d.nm;
+                if (!string.IsNullOrEmpty(d.ch)) OpponentCharId = d.ch;
+                if (d.sd > 0) SharedSeed = d.sd;
+                BeginDuelMatch();
+            }
+
+            if (!inActiveDuel) continue;
+            if (d.seq > 0 && d.seq <= remoteLastSeq) continue;
+            remoteLastSeq = d.seq;
+            lastWsPacketReceivedTime = Time.unscaledTime;
+
+            ApplyIncomingRemoteState(
+                d.nm,
+                d.ch,
+                d.t,
+                d.x,
+                d.y,
+                d.vx,
+                d.vy,
+                d.plat,
+                d.hp,
+                d.sc,
+                d.alv,
+                d.rkt,
+                d.trig_rkt || d.rkt,
+                d.sf,
+                d.sh,
+                d.jmp);
+        }
+    }
+
+    private void ApplyIncomingRemoteState(
+        string oppName,
+        string oppChar,
+        float oppMatchTime,
+        float x,
+        float y,
+        float vx,
+        float vy,
+        int platIdx,
+        int hp,
+        int sc,
+        bool alv,
+        bool rkt,
+        bool trigRocket,
+        bool sf,
+        bool sh,
+        bool jumped)
+    {
+        if (!string.IsNullOrEmpty(oppName)) OpponentName = oppName;
+        if (!string.IsNullOrEmpty(oppChar) && oppChar != OpponentCharId)
+        {
+            OpponentCharId = oppChar;
+            CharacterShopConfig cfg = CharacterShopConfig.Load();
+            if (cfg != null && opponentSpriteRenderer != null)
+            {
+                var entry = cfg.GetVisualEntry(OpponentCharId);
+                if (entry != null && entry.idleFrames != null && entry.idleFrames.Length > 0)
+                {
+                    opponentIdleFrames = entry.idleFrames;
+                }
+            }
+            LoadOpponentCornerSprites(OpponentCharId);
+        }
+
+        // Guest cihazda maç saatini Host saatine yumuşakça hizala ki hareketli platformlar %100 aynı fazda kalsın
+        if (!IsHost && oppMatchTime > 0.1f && Mathf.Abs(DuelMatchElapsedTime - oppMatchTime) < 4.0f)
+        {
+            DuelMatchElapsedTime = Mathf.Lerp(DuelMatchElapsedTime, oppMatchTime + 0.045f, 0.08f);
+        }
+
+        OpponentHealth = Mathf.Clamp(hp, 0, 5);
+        OpponentScore = Mathf.Max(OpponentScore, sc);
+        OpponentAlive = alv && OpponentHealth > 0;
+        OpponentSuperFeet = sf;
+        OpponentShield = sh;
+        remoteRocketActive = rkt;
+
+        int prevPlat = remotePacketPlatIdx;
+        if (jumped || (prevPlat >= 0 && platIdx < 0 && vy > 1.0f))
+        {
+            botVisualStretch = new Vector2(0.80f, 1.24f);
+            if (opponentAvatarObj != null)
+            {
+                JumpDustEffect.SpawnJumpDust(opponentAvatarObj.transform.position + new Vector3(0f, -0.22f, 0f));
+            }
+        }
+        else if (prevPlat < 0 && platIdx >= 0 && !rkt)
+        {
+            botVisualStretch = new Vector2(1.14f, 0.88f);
+        }
+
+        remotePacketPlatIdx = platIdx;
+        remotePacketX = x;
+        remotePacketY = y;
+        remotePacketVx = vx;
+        remotePacketVy = vy;
+        OpponentVy = vy;
+        lastRemotePacketTime = Time.unscaledTime;
+
+        GameManager gm = GameManager.Instance;
+        bool localOnRocket = gm != null && gm.IsRocketBoosting;
+        if (trigRocket && !localOnRocket && opponentRocketTimer <= 0.1f)
+        {
+            opponentRocketTimer = 3.0f;
+        }
+    }
+
     private IEnumerator SyncMatchStateRoutine()
     {
         if (string.IsNullOrEmpty(CurrentRoomCode) || IsBotMatch) yield break;
@@ -968,19 +1576,33 @@ public class MultiplayerManager : MonoBehaviour
         GameManager gm = GameManager.Instance;
         Vector3 myPos = (gm != null && gm.player != null) ? gm.player.transform.position : Vector3.zero;
         Rigidbody2D rb = (gm != null && gm.player != null) ? gm.player.GetComponent<Rigidbody2D>() : null;
+        PlayerController pc = (gm != null && gm.player != null) ? gm.player.GetComponent<PlayerController>() : null;
         float myVy = rb != null ? rb.linearVelocity.y : 0f;
         int myHealth = gm != null ? Mathf.Max(0, gm.health) : 0;
         int myScore = Mathf.RoundToInt(GameManager.currentScore);
         bool triggerRocket = pendingLocalRocketTrigger;
         pendingLocalRocketTrigger = false;
+        bool localOnRocket = gm != null && gm.IsRocketBoosting;
+
+        float sendX = myPos.x;
+        float sendY = myPos.y;
+        float sendVy = Mathf.Clamp(myVy, -50f, 50f);
+
+        if (pc != null && pc.IsGrounded && !localOnRocket && pc.CurrentStandingPlatform != null && pc.CurrentStandingPlatform.PlatformIndex >= 0)
+        {
+            PlatformMovement sp = pc.CurrentStandingPlatform;
+            sendX = Mathf.Clamp(myPos.x - sp.transform.position.x, -0.88f, 0.88f);
+            sendY = myPos.y;
+            sendVy = 1000f + sp.PlatformIndex;
+        }
 
         SyncStatePayload payload = new SyncStatePayload
         {
             p_room_code = CurrentRoomCode,
             p_secret = GetDeviceSecret(),
-            p_x = myPos.x,
-            p_y = myPos.y,
-            p_vy = myVy,
+            p_x = sendX,
+            p_y = sendY,
+            p_vy = sendVy,
             p_health = myHealth,
             p_score = myScore,
             p_alive = !localEliminated && myHealth > 0,
@@ -999,19 +1621,45 @@ public class MultiplayerManager : MonoBehaviour
                 RoomStateResponse resp = JsonUtility.FromJson<RoomStateResponse>(req.downloadHandler.text);
                 if (resp != null && resp.success)
                 {
-                    if (!string.IsNullOrEmpty(resp.opp_name)) OpponentName = resp.opp_name;
-                    OpponentTargetPos = new Vector2(resp.opp_x, resp.opp_y);
-                    OpponentVy = resp.opp_vy;
-                    OpponentHealth = Mathf.Clamp(resp.opp_health, 0, 5);
-                    OpponentScore = Mathf.Max(OpponentScore, resp.opp_score);
-                    OpponentAlive = resp.opp_alive && OpponentHealth > 0;
-                    OpponentSuperFeet = resp.opp_superfeet;
-                    OpponentShield = resp.opp_shield;
-
-                    bool localOnRocket = gm != null && gm.IsRocketBoosting;
-                    if (resp.opp_rocket && !localOnRocket && opponentRocketTimer <= 0.1f)
+                    // WebSocket canlı akıyorsa eski/gecikmeli HTTP pozisyonunun karakteri geri sıçratmasını kesin olarak önle!
+                    bool wsFresh = wsJoinedTopic && (Time.unscaledTime - lastWsPacketReceivedTime < 1.2f);
+                    if (wsFresh)
                     {
-                        opponentRocketTimer = 3.0f;
+                        if (!string.IsNullOrEmpty(resp.opp_name)) OpponentName = resp.opp_name;
+                        OpponentScore = Mathf.Max(OpponentScore, resp.opp_score);
+                        if (!resp.opp_alive || resp.opp_health <= 0)
+                        {
+                            OpponentHealth = 0;
+                            OpponentAlive = false;
+                        }
+                        if (resp.opp_rocket && !localOnRocket && opponentRocketTimer <= 0.1f)
+                        {
+                            opponentRocketTimer = 3.0f;
+                        }
+                    }
+                    else
+                    {
+                        int platIdx = (resp.opp_vy >= 999.5f && !resp.opp_rocket)
+                            ? Mathf.RoundToInt(resp.opp_vy - 1000f)
+                            : -1;
+                        float vyClean = platIdx >= 0 ? 0f : resp.opp_vy;
+                        ApplyIncomingRemoteState(
+                            resp.opp_name,
+                            resp.opp_char,
+                            0f,
+                            resp.opp_x,
+                            resp.opp_y,
+                            0f,
+                            vyClean,
+                            platIdx,
+                            resp.opp_health,
+                            resp.opp_score,
+                            resp.opp_alive,
+                            resp.opp_rocket,
+                            resp.opp_rocket,
+                            resp.opp_superfeet,
+                            resp.opp_shield,
+                            false);
                     }
                 }
             }
@@ -1020,56 +1668,568 @@ public class MultiplayerManager : MonoBehaviour
 
     private void UpdateBotOpponentSimulation(float dt)
     {
-        if (!OpponentAlive) return;
-
-        botSimTime += dt;
-        OpponentScore = Mathf.RoundToInt(botSimTime * 10.5f);
+        if (!OpponentAlive || opponentAvatarObj == null || botRb == null || botCollider == null)
+            return;
+        if (dt <= 0.0001f || Time.timeScale <= 0.01f)
+            return;
 
         PlatformMovement[] platforms = FindObjectsByType<PlatformMovement>(FindObjectsSortMode.None);
-        PlatformMovement targetPlat = null;
-        float bestDist = 999f;
-        for (int i = 0; i < platforms.Length; i++)
+
+        // İlk karede GameManager.Start() ilk platformu oluşturduktan hemen sonra botu da aynı başlangıç platformuna oturt
+        if (!botPlacedOnStartPlatform && platforms.Length > 0)
         {
-            PlatformMovement p = platforms[i];
-            if (p == null) continue;
-            float dy = p.transform.position.y - OpponentTargetPos.y;
-            if (dy > -0.4f && dy < 2.2f)
+            PlatformMovement startPlat = null;
+            GameManager gmInit = GameManager.Instance;
+            float refY = (gmInit != null && gmInit.player != null) ? gmInit.player.transform.position.y : -1.5f;
+            float bestStartDiff = 999f;
+            for (int i = 0; i < platforms.Length; i++)
             {
-                float d = Mathf.Abs(dy - 0.8f);
-                if (d < bestDist)
+                if (platforms[i] == null) continue;
+                float d = Mathf.Abs(platforms[i].transform.position.y - refY);
+                if (d < bestStartDiff)
                 {
-                    bestDist = d;
-                    targetPlat = p;
+                    bestStartDiff = d;
+                    startPlat = platforms[i];
                 }
+            }
+
+            if (startPlat != null)
+            {
+                Collider2D pCol = startPlat.GetComponent<Collider2D>();
+                float topY = pCol != null ? pCol.bounds.max.y : (startPlat.transform.position.y + 0.16f);
+                Vector3 placePos = new Vector3(startPlat.transform.position.x + 0.22f, topY + 0.28f, 0f);
+                opponentAvatarObj.transform.position = placePos;
+                botRb.position = placePos;
+                botRb.linearVelocity = new Vector2(0f, -GameManager.globalPlatformSpeed);
+                OpponentTargetPos = placePos;
+                botPlacedOnStartPlatform = true;
             }
         }
 
-        float targetX = targetPlat != null ? targetPlat.transform.position.x : Mathf.Sin(botSimTime * 1.4f) * 1.6f;
-        float bounceY = Mathf.Sin(botSimTime * 5.2f) * 0.95f - 0.4f;
-        OpponentVy = Mathf.Cos(botSimTime * 5.2f) * 4.5f;
-        OpponentTargetPos = new Vector2(
-            Mathf.Lerp(OpponentTargetPos.x, targetX, dt * 4.2f),
-            Mathf.Lerp(OpponentTargetPos.y, bounceY, dt * 6f));
+        Camera cam = Camera.main;
+        if (cam != null)
+        {
+            botWrapThreshold = (cam.orthographicSize * cam.aspect) + 0.45f;
+        }
 
+        botSimTime += dt;
+
+        GameManager gm = GameManager.Instance;
+        bool localOnRocket = gm != null && gm.IsRocketBoosting;
+        float scoreRate = (botSelfRocketTimer > 0f || localOnRocket) ? 16f : 10f;
+        botExactScore += dt * scoreRate;
+        OpponentScore = Mathf.RoundToInt(botExactScore);
+
+        float speedRatio = (GameManager.globalPlatformSpeed > 0f) ? (GameManager.globalPlatformSpeed / 1.7f) : 1f;
+        speedRatio = Mathf.Clamp(speedRatio, 1f, 1.41f);
+
+        // Roket zamanı geldiyse bot gerçekten roketle uçar ve rakibe sabotaj uygular
         if (botSimTime >= botNextRocketTime)
         {
-            botNextRocketTime = botSimTime + UnityEngine.Random.Range(16f, 24f);
-            GameManager gm = GameManager.Instance;
-            if (gm == null || !gm.IsRocketBoosting)
+            botNextRocketTime = botSimTime + UnityEngine.Random.Range(18f, 27f);
+            botSelfRocketTimer = 3.0f;
+            if (!localOnRocket)
             {
                 opponentRocketTimer = 3.0f;
             }
         }
 
-        if (botSimTime >= botNextHitTime)
+        // Arada bir gerçek insan gibi ufak hedef sapması / geç tepki (maçın rekabetçi ve kazanılabilir kalması için)
+        if (botSimTime >= botNextMistakeTime)
         {
-            botNextHitTime = botSimTime + UnityEngine.Random.Range(14f, 22f);
+            botNextMistakeTime = botSimTime + UnityEngine.Random.Range(18f, 28f);
+            botMistakeTimer = UnityEngine.Random.Range(0.55f, 0.95f);
+            botMistakeOffset = (UnityEngine.Random.value < 0.5f ? -1f : 1f) * UnityEngine.Random.Range(0.45f, 0.72f);
+        }
+        if (botMistakeTimer > 0f)
+        {
+            botMistakeTimer -= dt;
+        }
+
+        // Zemin kontrolü (PlayerController ile birebir aynı mantık)
+        Vector2 feetPos = botFeetTransform != null ? (Vector2)botFeetTransform.position : (Vector2)opponentAvatarObj.transform.position + new Vector2(0f, -0.22f);
+        Collider2D groundHit = Physics2D.OverlapCircle(feetPos, botFootRadius, botGroundMask);
+        if (groundHit != null)
+        {
+            if (botRb.linearVelocity.y > 0.20f || botCollider.bounds.min.y < groundHit.bounds.center.y)
+            {
+                groundHit = null;
+            }
+        }
+        botGrounded = groundHit != null;
+        PlatformMovement standingPlat = (botGrounded && groundHit != null) ? groundHit.GetComponentInParent<PlatformMovement>() : null;
+
+        if (botGrounded && !botWasGrounded && botRb.linearVelocity.y <= 0.15f)
+        {
+            botVisualStretch = new Vector2(1.14f, 0.88f);
+        }
+        botWasGrounded = botGrounded;
+
+        Vector3 botPos = opponentAvatarObj.transform.position;
+        float fullWrapWidth = botWrapThreshold * 2f;
+
+        if (botSelfRocketTimer > 0f)
+        {
+            botSelfRocketTimer -= dt;
+            botRb.gravityScale = 0f;
+            float targetY = gm != null ? gm.rocketTargetY : 1.15f;
+            float nextY = Mathf.Lerp(botPos.y, targetY, Mathf.Clamp01(dt * 6.5f));
+            float weaveVx = Mathf.Sin(botSimTime * 3.2f) * botMoveSpeed * 0.65f;
+            opponentAvatarObj.transform.position = new Vector3(botPos.x, nextY, 0f);
+            botRb.linearVelocity = new Vector2(weaveVx, 0f);
+            UpdateBotRocketFlame(true);
+
+            // Roket biterken en yakın güvenli platforma hizalan
+            if (botSelfRocketTimer <= 0f)
+            {
+                UpdateBotRocketFlame(false);
+            }
+        }
+        else
+        {
+            UpdateBotRocketFlame(false);
+            botRb.gravityScale = botBaseGravityScale * speedRatio;
+
+            float desiredMoveInput = 0f;
+            float currentMoveSpeed = botMoveSpeed * Mathf.Sqrt(speedRatio);
+
+            if (botGrounded)
+            {
+                botJumpCooldown -= dt;
+
+                // Üstteki en uygun ulaşılabilir platformu seç
+                PlatformMovement bestUpper = null;
+                float bestScore = 999f;
+                for (int i = 0; i < platforms.Length; i++)
+                {
+                    PlatformMovement p = platforms[i];
+                    if (p == null || p == standingPlat) continue;
+                    float dy = p.transform.position.y - botPos.y;
+                    if (dy < 0.38f || dy > 2.15f) continue;
+
+                    float wDx = ShortestWrappedDx(botPos.x, p.transform.position.x, fullWrapWidth);
+                    float score = Mathf.Abs(dy - 1.35f) * 1.35f + Mathf.Abs(wDx) * 0.48f;
+                    if (score < bestScore)
+                    {
+                        bestScore = score;
+                        bestUpper = p;
+                    }
+                }
+
+                if (bestUpper != null)
+                {
+                    Collider2D upperCol = bestUpper.GetComponent<Collider2D>();
+                    bool upperIsSolid = upperCol != null && !upperCol.usedByEffector;
+                    float aimX = bestUpper.transform.position.x
+                        + (bestUpper.isMovingHorizontal ? bestUpper.CurrentHorizontalVelocity * 0.22f : 0f)
+                        + (botMistakeTimer > 0f ? botMistakeOffset : 0f);
+
+                    float rawDxToUpper = ShortestWrappedDx(botPos.x, aimX, fullWrapWidth);
+                    bool blockedDirectlyOverhead = upperIsSolid && Mathf.Abs(rawDxToUpper) < 0.78f && (bestUpper.transform.position.y - botPos.y) < 1.85f;
+
+                    float walkTargetX = aimX;
+                    if (blockedDirectlyOverhead)
+                    {
+                        // Tıpkı gerçek oyuncu gibi üstteki katı platformun altından sıyrılıp yandan zıplamak için kenara açıl
+                        float sideSign = 1f;
+                        if (standingPlat != null)
+                        {
+                            sideSign = (standingPlat.transform.position.x >= bestUpper.transform.position.x) ? 1f : -1f;
+                        }
+                        walkTargetX = bestUpper.transform.position.x + sideSign * 0.88f;
+                    }
+
+                    float walkDx = ShortestWrappedDx(botPos.x, walkTargetX, fullWrapWidth);
+                    if (Mathf.Abs(walkDx) > 0.08f)
+                    {
+                        desiredMoveInput = Mathf.Clamp(walkDx * 3.2f, -1f, 1f);
+                    }
+
+                    bool onStandingEdge = false;
+                    if (standingPlat != null && groundHit != null)
+                    {
+                        Bounds sb = groundHit.bounds;
+                        onStandingEdge = (botPos.x <= sb.min.x + 0.14f && desiredMoveInput < 0f)
+                                      || (botPos.x >= sb.max.x - 0.14f && desiredMoveInput > 0f);
+                    }
+
+                    bool urgentLow = botPos.y < -1.55f;
+                    bool clearToJump = !blockedDirectlyOverhead || onStandingEdge || urgentLow;
+                    bool withinHorizontalReach = Mathf.Abs(rawDxToUpper) <= 1.75f || urgentLow || onStandingEdge;
+
+                    if (botJumpCooldown <= 0f && clearToJump && withinHorizontalReach && botRb.linearVelocity.y <= 0.15f)
+                    {
+                        botRb.linearVelocity = new Vector2(botRb.linearVelocity.x, 0f);
+                        float jumpImpulse = botJumpForce * Mathf.Sqrt(speedRatio);
+                        botRb.AddForce(Vector2.up * jumpImpulse, ForceMode2D.Impulse);
+                        botVisualStretch = new Vector2(0.80f, 1.24f);
+                        JumpDustEffect.SpawnJumpDust(feetPos);
+                        botGrounded = false;
+                        botJumpCooldown = botPos.y < -0.8f
+                            ? UnityEngine.Random.Range(0.03f, 0.08f)
+                            : UnityEngine.Random.Range(0.07f, 0.17f);
+                    }
+                }
+                else if (standingPlat != null)
+                {
+                    // Ekranın çok üstündeyse mevcut platformun ortasında dengede kal
+                    float centerDx = standingPlat.transform.position.x - botPos.x;
+                    if (Mathf.Abs(centerDx) > 0.12f)
+                    {
+                        desiredMoveInput = Mathf.Clamp(centerDx * 2.5f, -1f, 1f);
+                    }
+                }
+            }
+            else
+            {
+                // Havadayken gerçek oyuncu gibi hedef platforma yönlen
+                if (botRb.linearVelocity.y > 0.20f)
+                {
+                    // Yükselirken: hedef üst platformu bul, katı platformun altındaysa kenarından dolaşıp üstüne kıvrıl
+                    PlatformMovement airTarget = null;
+                    float bestAirScore = 999f;
+                    for (int i = 0; i < platforms.Length; i++)
+                    {
+                        PlatformMovement p = platforms[i];
+                        if (p == null) continue;
+                        float dy = p.transform.position.y - botPos.y;
+                        if (dy < -0.18f || dy > 1.85f) continue;
+                        float wDx = ShortestWrappedDx(botPos.x, p.transform.position.x, fullWrapWidth);
+                        float sc = Mathf.Abs(wDx) + Mathf.Abs(dy - 0.65f) * 0.7f;
+                        if (sc < bestAirScore)
+                        {
+                            bestAirScore = sc;
+                            airTarget = p;
+                        }
+                    }
+
+                    if (airTarget != null)
+                    {
+                        Collider2D tCol = airTarget.GetComponent<Collider2D>();
+                        float platTopY = tCol != null ? tCol.bounds.max.y : (airTarget.transform.position.y + 0.15f);
+                        bool solidBelowTop = tCol != null && !tCol.usedByEffector && (botCollider.bounds.min.y < platTopY - 0.05f);
+                        float targetX = airTarget.transform.position.x + (airTarget.isMovingHorizontal ? airTarget.CurrentHorizontalVelocity * 0.15f : 0f);
+
+                        float wDx = ShortestWrappedDx(botPos.x, targetX, fullWrapWidth);
+                        if (solidBelowTop && Mathf.Abs(wDx) < 0.76f)
+                        {
+                            // Ayaklar platform üst hizasını geçene kadar kenardan yüksel
+                            float aroundSign = wDx <= 0f ? 1f : -1f;
+                            targetX = airTarget.transform.position.x + aroundSign * 0.84f;
+                            wDx = ShortestWrappedDx(botPos.x, targetX, fullWrapWidth);
+                        }
+
+                        if (Mathf.Abs(wDx) > 0.05f)
+                        {
+                            desiredMoveInput = Mathf.Clamp(wDx * 3.8f, -1f, 1f);
+                        }
+                    }
+                }
+                else
+                {
+                    // Düşerken: ayakların altındaki en yüksek uygun platformun tam üstüne in!
+                    PlatformMovement landPlat = null;
+                    float bestLandScore = -999f;
+                    float botFeetY = botCollider.bounds.min.y;
+
+                    for (int i = 0; i < platforms.Length; i++)
+                    {
+                        PlatformMovement p = platforms[i];
+                        if (p == null) continue;
+                        Collider2D pCol = p.GetComponent<Collider2D>();
+                        float topY = pCol != null ? pCol.bounds.max.y : (p.transform.position.y + 0.15f);
+                        if (topY > botFeetY + 0.18f || topY < botFeetY - 3.2f) continue;
+
+                        float wDx = ShortestWrappedDx(botPos.x, p.transform.position.x, fullWrapWidth);
+                        if (Mathf.Abs(wDx) > 2.25f) continue;
+
+                        // Yüksek olan ve yatayda kolay yetişilen platformu tercih et
+                        float landScore = topY * 1.5f - Mathf.Abs(wDx) * 0.85f;
+                        if (landScore > bestLandScore)
+                        {
+                            bestLandScore = landScore;
+                            landPlat = p;
+                        }
+                    }
+
+                    if (landPlat != null)
+                    {
+                        float landX = landPlat.transform.position.x
+                            + (landPlat.isMovingHorizontal ? landPlat.CurrentHorizontalVelocity * 0.12f : 0f)
+                            + (botMistakeTimer > 0f ? botMistakeOffset : 0f);
+                        float wDx = ShortestWrappedDx(botPos.x, landX, fullWrapWidth);
+                        if (Mathf.Abs(wDx) > 0.05f)
+                        {
+                            desiredMoveInput = Mathf.Clamp(wDx * 4.2f, -1f, 1f);
+                        }
+                    }
+                }
+            }
+
+            botCurrentMoveInput = Mathf.MoveTowards(botCurrentMoveInput, desiredMoveInput, dt * 15f);
+            float platformCarryVx = (botGrounded && standingPlat != null && standingPlat.isMovingHorizontal)
+                ? standingPlat.CurrentHorizontalVelocity
+                : 0f;
+
+            botRb.linearVelocity = new Vector2((botCurrentMoveInput * currentMoveSpeed) + platformCarryVx, botRb.linearVelocity.y);
+        }
+
+        // Ekran Sarma (Screen Wrap - yerel oyuncuyla birebir aynı!)
+        Vector3 afterPos = opponentAvatarObj.transform.position;
+        if (afterPos.x > botWrapThreshold)
+        {
+            afterPos.x = -botWrapThreshold + 0.1f;
+            opponentAvatarObj.transform.position = afterPos;
+            botRb.position = afterPos;
+        }
+        else if (afterPos.x < -botWrapThreshold)
+        {
+            afterPos.x = botWrapThreshold - 0.1f;
+            opponentAvatarObj.transform.position = afterPos;
+            botRb.position = afterPos;
+        }
+
+        if (Mathf.Abs(botCurrentMoveInput) > 0.05f)
+        {
+            opponentFacing = botCurrentMoveInput > 0f ? 1f : -1f;
+        }
+
+        // Gerçek düşüş kontrolü: DeadZone (-5.15) altına düşerse 1 can kaybeder ve üstteki bir platformda doğar
+        if (afterPos.y < -5.15f)
+        {
             OpponentHealth = Mathf.Max(0, OpponentHealth - 1);
             if (OpponentHealth <= 0)
             {
                 OpponentAlive = false;
+                UpdateBotRocketFlame(false);
+                return;
+            }
+
+            // Mevcut en yüksek güvenli platformun üstünde yeniden doğ
+            PlatformMovement respawnPlat = null;
+            float highestY = -999f;
+            for (int i = 0; i < platforms.Length; i++)
+            {
+                if (platforms[i] == null) continue;
+                float py = platforms[i].transform.position.y;
+                if (py > highestY && py < 3.8f)
+                {
+                    highestY = py;
+                    respawnPlat = platforms[i];
+                }
+            }
+
+            Vector3 respawnPos = respawnPlat != null
+                ? new Vector3(respawnPlat.transform.position.x, respawnPlat.transform.position.y + 0.48f, 0f)
+                : new Vector3(0f, 1.8f, 0f);
+
+            opponentAvatarObj.transform.position = respawnPos;
+            botRb.position = respawnPos;
+            botRb.linearVelocity = new Vector2(0f, -GameManager.globalPlatformSpeed);
+            botMistakeTimer = 0f;
+            botVisualStretch = new Vector2(1.15f, 0.88f);
+            JumpDustEffect.SpawnSuperJumpBurst(respawnPos);
+        }
+
+        OpponentTargetPos = opponentAvatarObj.transform.position;
+        OpponentVy = botRb.linearVelocity.y;
+    }
+
+    private static float ShortestWrappedDx(float fromX, float toX, float fullSpan)
+    {
+        float dx = toX - fromX;
+        if (fullSpan <= 0.1f) return dx;
+        if (dx > fullSpan * 0.5f) dx -= fullSpan;
+        else if (dx < -fullSpan * 0.5f) dx += fullSpan;
+        return dx;
+    }
+
+    private void UpdateBotRocketFlame(bool active)
+    {
+        if (!active)
+        {
+            if (botRocketFlameObj != null && botRocketFlameObj.activeSelf)
+            {
+                botRocketFlameObj.SetActive(false);
+            }
+            return;
+        }
+
+        if (opponentAvatarObj == null) return;
+        if (botRocketFlameObj == null)
+        {
+            botRocketFlameObj = new GameObject("BotRocketFlame");
+            botRocketFlameObj.transform.SetParent(opponentAvatarObj.transform, false);
+            botRocketFlameObj.transform.localPosition = new Vector3(0f, -0.22f, 0f);
+            botRocketFlameRenderer = botRocketFlameObj.AddComponent<SpriteRenderer>();
+            botRocketFlameRenderer.sprite = CreateRoundedSprite(20, 32, 8, false);
+            botRocketFlameRenderer.sortingOrder = 7;
+        }
+
+        if (!botRocketFlameObj.activeSelf) botRocketFlameObj.SetActive(true);
+        float flicker = 0.85f + 0.30f * Mathf.Abs(Mathf.Sin(Time.time * 28f));
+        botRocketFlameObj.transform.localScale = new Vector3(0.42f, 0.65f * flicker, 1f);
+        botRocketFlameRenderer.color = new Color(1f, UnityEngine.Random.Range(0.45f, 0.78f), 0.12f, 0.90f);
+    }
+
+    private static PlatformMovement FindPlatformByIndex(int index)
+    {
+        if (index < 0) return null;
+        PlatformMovement[] all = FindObjectsByType<PlatformMovement>(FindObjectsSortMode.None);
+        for (int i = 0; i < all.Length; i++)
+        {
+            if (all[i] != null && all[i].PlatformIndex == index)
+            {
+                return all[i];
             }
         }
+        return null;
+    }
+
+    private static float GetPlatformStandingY(PlatformMovement plat)
+    {
+        if (plat == null) return -1.5f;
+        Collider2D col = plat.GetComponent<Collider2D>();
+        float topY = col != null ? col.bounds.max.y : (plat.transform.position.y + 0.155f);
+        return topY + 0.2485f;
+    }
+
+    private static float WrapCoordX(float x, float wrapT)
+    {
+        if (wrapT <= 0.5f) return x;
+        if (x > wrapT) return -wrapT + 0.1f + ((x - wrapT) % (wrapT * 2f));
+        if (x < -wrapT) return wrapT - 0.1f - ((-wrapT - x) % (wrapT * 2f));
+        return x;
+    }
+
+    private void UpdateRemoteHumanAvatarMotion(float dt)
+    {
+        if (opponentAvatarObj == null || dt <= 0.0001f) return;
+
+        // İlk karede başlangıç platformu (#0) oluştuğu anda karakteri tam üstüne yerleştir
+        if (!remotePlacedOnStartPlat)
+        {
+            PlatformMovement startPlat = FindPlatformByIndex(0);
+            if (startPlat != null)
+            {
+                Vector2 initPos = new Vector2(startPlat.transform.position.x + 0.16f, GetPlatformStandingY(startPlat));
+                remoteRenderPos = initPos;
+                opponentAvatarObj.transform.position = new Vector3(initPos.x, initPos.y, 0f);
+                remotePlacedOnStartPlat = true;
+            }
+        }
+
+        UpdateBotRocketFlame(remoteRocketActive);
+
+        Camera cam = Camera.main;
+        float wrapT = (cam != null ? (cam.orthographicSize * cam.aspect) : 2.55f) + 0.45f;
+        float age = Mathf.Clamp(Time.unscaledTime - lastRemotePacketTime, 0f, 0.22f);
+
+        Vector2 desiredPos;
+        Vector2 desiredVel;
+
+        if (remotePacketPlatIdx >= 0 && !remoteRocketActive)
+        {
+            PlatformMovement plat = FindPlatformByIndex(remotePacketPlatIdx);
+            if (plat != null)
+            {
+                float standY = GetPlatformStandingY(plat);
+                float rawOffset = standY - remotePacketY;
+                remoteWorldYOffset = remoteHasWorldYOffset
+                    ? Mathf.Lerp(remoteWorldYOffset, rawOffset, 0.25f)
+                    : rawOffset;
+                remoteHasWorldYOffset = true;
+
+                float dampedWalkVx = remotePacketVx * Mathf.Exp(-6.5f * age);
+                float predOffsetX = Mathf.Clamp(remotePacketX + dampedWalkVx * age, -0.82f, 0.82f);
+
+                desiredPos = new Vector2(plat.transform.position.x + predOffsetX, standY);
+                desiredVel = new Vector2(
+                    (plat.isMovingHorizontal ? plat.CurrentHorizontalVelocity : 0f) + dampedWalkVx,
+                    -GameManager.globalPlatformSpeed);
+
+                if (Mathf.Abs(remotePacketVx) > 0.12f)
+                {
+                    opponentFacing = remotePacketVx > 0f ? 1f : -1f;
+                }
+            }
+            else
+            {
+                float mappedY = remotePacketY + (remoteHasWorldYOffset ? remoteWorldYOffset : 0f) - (GameManager.globalPlatformSpeed * age);
+                desiredPos = new Vector2(WrapCoordX(remotePacketX + remotePacketVx * age, wrapT), mappedY);
+                desiredVel = new Vector2(remotePacketVx, -GameManager.globalPlatformSpeed);
+            }
+        }
+        else if (remoteRocketActive)
+        {
+            float mappedY = remotePacketY + (remoteHasWorldYOffset ? remoteWorldYOffset : 0f);
+            desiredPos = new Vector2(WrapCoordX(remotePacketX + remotePacketVx * age * 0.6f, wrapT), mappedY);
+            desiredVel = new Vector2(remotePacketVx * 0.6f, 0f);
+            if (Mathf.Abs(remotePacketVx) > 0.12f)
+            {
+                opponentFacing = remotePacketVx > 0f ? 1f : -1f;
+            }
+        }
+        else
+        {
+            // Havadayken: Son ağ paketinden itibaren age süresi kadar parabolik yerçekimi ilerlet
+            float speedRatio = (GameManager.globalPlatformSpeed > 0f) ? (GameManager.globalPlatformSpeed / 1.7f) : 1f;
+            speedRatio = Mathf.Clamp(speedRatio, 1f, 1.41f);
+            float g = 14.715f * speedRatio;
+
+            float mappedStartY = remotePacketY + (remoteHasWorldYOffset ? remoteWorldYOffset : 0f);
+            float predX = WrapCoordX(remotePacketX + remotePacketVx * age, wrapT);
+            float predY = mappedStartY + (remotePacketVy * age) - (0.5f * g * age * age);
+            float predVy = remotePacketVy - (g * age);
+
+            // Aşağı inerken platformun içine gömülmeyi önle
+            if (predVy <= 0.05f)
+            {
+                PlatformMovement[] allPlats = FindObjectsByType<PlatformMovement>(FindObjectsSortMode.None);
+                for (int i = 0; i < allPlats.Length; i++)
+                {
+                    PlatformMovement pm = allPlats[i];
+                    if (pm == null) continue;
+                    if (Mathf.Abs(predX - pm.transform.position.x) <= 0.68f)
+                    {
+                        float standY = GetPlatformStandingY(pm);
+                        if (mappedStartY >= standY - 0.12f && predY <= standY)
+                        {
+                            predY = standY;
+                            predVy = -GameManager.globalPlatformSpeed;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            desiredPos = new Vector2(predX, predY);
+            desiredVel = new Vector2(remotePacketVx, predVy);
+
+            if (Mathf.Abs(remotePacketVx) > 0.15f)
+            {
+                opponentFacing = remotePacketVx > 0f ? 1f : -1f;
+            }
+        }
+
+        // Gerçek Ekran Sarma (sol kenardan çıkıp sağdan girme) haricinde ASLA ışınlanma yapma!
+        float rawXGap = desiredPos.x - remoteRenderPos.x;
+        if (Mathf.Abs(rawXGap) > wrapT * 1.30f)
+        {
+            remoteRenderPos.x += Mathf.Sign(rawXGap) * (wrapT * 2f - 0.2f);
+            remoteSmoothVel.x = 0f;
+        }
+
+        // 1) Feed-Forward hız ilerletmesi: Platform üstündeyken platformla milimetrik aynı hızda iner ve kayar (%0 gecikme!)
+        remoteRenderPos += desiredVel * dt;
+        remoteRenderPos.x = WrapCoordX(remoteRenderPos.x, wrapT);
+
+        // 2) Kalan hata farkını yumuşakça sıfırla (maxSpeed sınırı sayesinde ani paket farkında bile ışınlanmaz, akarak yetişir!)
+        float smoothTime = (remotePacketPlatIdx >= 0 && !remoteRocketActive) ? 0.036f : 0.046f;
+        remoteRenderPos = Vector2.SmoothDamp(remoteRenderPos, desiredPos, ref remoteSmoothVel, smoothTime, 16.5f, dt);
+
+        OpponentTargetPos = desiredPos;
+        opponentAvatarObj.transform.position = new Vector3(remoteRenderPos.x, remoteRenderPos.y, 0f);
     }
 
     private void UpdateOpponentAvatarVisuals(float dt)
@@ -1083,28 +2243,80 @@ public class MultiplayerManager : MonoBehaviour
         }
         if (!opponentAvatarObj.activeSelf) opponentAvatarObj.SetActive(true);
 
-        Vector3 curr = opponentAvatarObj.transform.position;
-        Vector3 next = Vector3.Lerp(curr, new Vector3(OpponentTargetPos.x, OpponentTargetPos.y, 0f), Mathf.Clamp01(dt * 12f));
-        float dx = next.x - curr.x;
-        if (Mathf.Abs(dx) > 0.005f) opponentFacing = dx > 0f ? 1f : -1f;
+        if (IsBotMatch)
+        {
+            // Bot maçında pozisyon zaten doğrudan gerçek Rigidbody2D fiziği tarafından sürülüyor (sıfır kayma!)
+            botVisualStretch = Vector2.Lerp(botVisualStretch, Vector2.one, Mathf.Clamp01(dt * 12f));
+        }
+        else
+        {
+            // Online insan rakip: Platform üstündeyken %100 platform yüzeyine kilitle, havadayken gerçek yerçekimiyle (Dead-Reckoning) akıt!
+            UpdateRemoteHumanAvatarMotion(dt);
+            botVisualStretch = Vector2.Lerp(botVisualStretch, Vector2.one, Mathf.Clamp01(dt * 12f));
+        }
 
-        opponentAvatarObj.transform.position = next;
-
-        float stretchY = OpponentVy > 1.0f ? 1.16f : 1.0f;
-        float stretchX = OpponentVy > 1.0f ? 0.88f : 1.0f;
-        opponentAvatarObj.transform.localScale = new Vector3(opponentFacing * 1.80f * stretchX, 1.42f * stretchY, 1f);
+        float sx = Mathf.Max(0.5f, botVisualStretch.x);
+        float sy = Mathf.Max(0.5f, botVisualStretch.y);
+        opponentAvatarObj.transform.localScale = new Vector3(opponentFacing * 1.805f * sx, 1.422f * sy, 1f);
 
         if (opponentNameTagTmp != null)
         {
-            opponentNameTagTmp.transform.localScale = new Vector3(opponentFacing * 0.08f, 0.10f, 1f);
+            // Karakter esnerken isim etiketi sabit boyutta ve düz okunur kalsın
+            opponentNameTagTmp.transform.localScale = new Vector3((opponentFacing * 0.08f) / sx, 0.10f / sy, 1f);
             opponentNameTagTmp.text = $"{OpponentName}\nCAN: {OpponentHealth}";
         }
 
-        if (opponentIdleFrames != null && opponentIdleFrames.Length > 0 && opponentSpriteRenderer != null)
+        // Platformun sağ veya sol yanındaysa rakibin kendi karakterine özel tırmanma/tutunma görüntüsünü göster
+        bool inCornerPose = false;
+        bool onRightSide = false;
+        if (opponentCornerFrames != null && opponentCornerFrames.Length > 0 && opponentSpriteRenderer != null && botSelfRocketTimer <= 0f)
         {
-            opponentAnimTimer += dt * 12f;
-            opponentAnimFrame = Mathf.FloorToInt(opponentAnimTimer) % opponentIdleFrames.Length;
-            opponentSpriteRenderer.sprite = opponentIdleFrames[opponentAnimFrame];
+            Vector3 opPos = opponentAvatarObj.transform.position;
+            Collider2D nearPlat = Physics2D.OverlapBox(
+                opPos + new Vector3(0f, -0.04f, 0f),
+                new Vector2(0.66f, 0.44f),
+                0f,
+                botGroundMask);
+
+            if (nearPlat != null)
+            {
+                Bounds gb = nearPlat.bounds;
+                float botBottomY = opPos.y - 0.24f;
+                bool notOnTop = botBottomY < (gb.max.y - 0.05f);
+                bool sideVertical = notOnTop && (opPos.y >= gb.min.y - 0.16f) && (opPos.y <= gb.max.y + 0.12f);
+                if (sideVertical)
+                {
+                    if (opPos.x >= gb.max.x + 0.04f)
+                    {
+                        inCornerPose = true;
+                        onRightSide = true;
+                    }
+                    else if (opPos.x <= gb.min.x - 0.04f)
+                    {
+                        inCornerPose = true;
+                        onRightSide = false;
+                    }
+                }
+            }
+        }
+
+        if (inCornerPose && opponentSpriteRenderer != null)
+        {
+            opponentCornerAnimTimer += dt * 7f;
+            int cIdx = Mathf.FloorToInt(opponentCornerAnimTimer) % opponentCornerFrames.Length;
+            opponentSpriteRenderer.sprite = opponentCornerFrames[cIdx];
+            bool scaleNeg = opponentAvatarObj.transform.localScale.x < 0f;
+            opponentSpriteRenderer.flipX = onRightSide ? scaleNeg : !scaleNeg;
+        }
+        else if (opponentSpriteRenderer != null)
+        {
+            opponentSpriteRenderer.flipX = false;
+            if (opponentIdleFrames != null && opponentIdleFrames.Length > 0)
+            {
+                opponentAnimTimer += dt * 12f;
+                opponentAnimFrame = Mathf.FloorToInt(opponentAnimTimer) % opponentIdleFrames.Length;
+                opponentSpriteRenderer.sprite = opponentIdleFrames[opponentAnimFrame];
+            }
         }
     }
 
