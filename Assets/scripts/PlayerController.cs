@@ -64,6 +64,9 @@ public class PlayerController : MonoBehaviour
     private PlatformMovement standingPlatform;
     private Collider2D playerCollider;
 
+    public bool IsGrounded => yerdeMi;
+    public PlatformMovement CurrentStandingPlatform => standingPlatform;
+
     // Zıplama & iniş esneme (Squash & Stretch) animasyonu ve iz zamanlayıcısı
     private float baseAbsScaleX = 1.8f;
     private float baseScaleY = 1.42f;
@@ -72,10 +75,20 @@ public class PlayerController : MonoBehaviour
     private bool wasGroundedForSquash = true;
     private float superTrailTimer = 0f;
 
+    // Platform sağ/sol kenarında görsel poz (fizik veya mekaniğe kesinlikle dokunmaz)
+    private SpriteRenderer playerSpriteRenderer;
+    private Sprite[] cornerHangFrames;
+    private string loadedCornerCharId;
+    private float cornerAnimTimer = 0f;
+    private bool wasInCornerPose = false;
+    private Sprite lastNormalSprite;
+
     void Start()
     {
         rb = GetComponent<Rigidbody2D>();
         playerCollider = GetComponent<Collider2D>();
+        playerSpriteRenderer = GetComponent<SpriteRenderer>();
+        LoadCornerHangSprites();
         if (rb != null)
         {
             baseGravityScale = rb.gravityScale;
@@ -94,6 +107,45 @@ public class PlayerController : MonoBehaviour
         ApplyControlModeUI();
 
         CalculateScreenBounds();
+    }
+
+    private void LoadCornerHangSprites()
+    {
+        string charId = CharacterShopData.GetSelectedCharacterId();
+        loadedCornerCharId = charId;
+        Texture2D tex = Resources.Load<Texture2D>("Characters/corner_hang_" + charId);
+        if (tex == null)
+        {
+            tex = Resources.Load<Texture2D>("Characters/corner_hang_pink_man");
+        }
+        if (tex == null) return;
+
+        int frameSize = tex.height;
+        if (frameSize <= 0) return;
+        int frameCount = Mathf.Max(1, tex.width / frameSize);
+        cornerHangFrames = new Sprite[frameCount];
+
+        // Pink Man 114 PPU'da tam oturuyor; Ninja Frog, Mask Dude ve Virtual Guy çizimleri daha kompakt olduğu için
+        // daha düşük PPU (daha büyük dünya boyutu) ile normal karakter boyutlarıyla birebir eşitlenir.
+        float cornerPpu = 114f;
+        if (charId == CharacterShopData.NinjaFrogId || charId == CharacterShopData.VirtualGuyId)
+        {
+            cornerPpu = 88f;
+        }
+        else if (charId == CharacterShopData.MaskDudeId)
+        {
+            cornerPpu = 90f;
+        }
+
+        Vector2 cornerPivot = new Vector2(0.5f, 0.5f);
+        for (int i = 0; i < frameCount; i++)
+        {
+            cornerHangFrames[i] = Sprite.Create(
+                tex,
+                new Rect(i * frameSize, 0f, frameSize, frameSize),
+                cornerPivot,
+                cornerPpu);
+        }
     }
 
     public void ApplyControlModeUI()
@@ -325,6 +377,98 @@ public class PlayerController : MonoBehaviour
                 audioSource.PlayOneShot(jumpSound, ziplamaSesiSiddeti);
             }
         }
+    }
+
+    void LateUpdate()
+    {
+        if (loadedCornerCharId != CharacterShopData.GetSelectedCharacterId())
+        {
+            LoadCornerHangSprites();
+        }
+        if (playerSpriteRenderer == null || cornerHangFrames == null || cornerHangFrames.Length == 0)
+            return;
+
+        bool rocketActive = GameManager.Instance != null && GameManager.Instance.IsRocketBoosting;
+        bool inCornerPose = false;
+        bool onRightSide = false;
+
+        if (!rocketActive && playerCollider != null)
+        {
+            Bounds pb = playerCollider.bounds;
+            Collider2D platCol = Physics2D.OverlapBox(
+                pb.center,
+                new Vector2(pb.size.x + 0.24f, pb.size.y + 0.04f),
+                0f,
+                zeminKatmani);
+
+            if (platCol == null && ayakNoktasi != null)
+            {
+                platCol = Physics2D.OverlapCircle(ayakNoktasi.position, ayakCapi, zeminKatmani);
+            }
+
+            if (platCol != null)
+            {
+                Bounds gb = platCol.bounds;
+                float px = transform.position.x;
+                float py = transform.position.y;
+
+                // Platformun ÜSTÜNDEYKEN (köşesinde bile olsa) GİRMESİN:
+                // Karakterin alt ucu (pb.min.y) platformun üst yüzeyinden (gb.max.y) aşağıda olmalı
+                // ve karakter yatayda tamamen platformun sağ veya sol yanına çıkmış olmalı.
+                bool notOnTopOfPlatform = pb.min.y < (gb.max.y - 0.05f);
+                bool sideVerticalMatch = notOnTopOfPlatform && (py >= gb.min.y - 0.16f) && (py <= gb.max.y + 0.12f);
+
+                if (sideVerticalMatch)
+                {
+                    if (px >= gb.max.x + 0.04f)
+                    {
+                        inCornerPose = true;
+                        onRightSide = true;
+                    }
+                    else if (px <= gb.min.x - 0.04f)
+                    {
+                        inCornerPose = true;
+                        onRightSide = false;
+                    }
+                }
+            }
+        }
+
+        if (inCornerPose)
+        {
+            if (!IsCornerSprite(playerSpriteRenderer.sprite) && playerSpriteRenderer.sprite != null)
+            {
+                lastNormalSprite = playerSpriteRenderer.sprite;
+            }
+            wasInCornerPose = true;
+
+            cornerAnimTimer += Time.deltaTime * 7f;
+            int frameIdx = Mathf.FloorToInt(cornerAnimTimer) % cornerHangFrames.Length;
+            playerSpriteRenderer.sprite = cornerHangFrames[frameIdx];
+
+            // transform.localScale.x veya mekaniğe dokunmadan sadece sprite yönünü platforma çevir
+            bool scaleIsNegative = transform.localScale.x < 0f;
+            playerSpriteRenderer.flipX = onRightSide ? scaleIsNegative : !scaleIsNegative;
+        }
+        else if (wasInCornerPose)
+        {
+            wasInCornerPose = false;
+            playerSpriteRenderer.flipX = false;
+            if (IsCornerSprite(playerSpriteRenderer.sprite) && lastNormalSprite != null)
+            {
+                playerSpriteRenderer.sprite = lastNormalSprite;
+            }
+        }
+    }
+
+    private bool IsCornerSprite(Sprite s)
+    {
+        if (s == null || cornerHangFrames == null) return false;
+        for (int i = 0; i < cornerHangFrames.Length; i++)
+        {
+            if (cornerHangFrames[i] == s) return true;
+        }
+        return false;
     }
 
     public void SetMobileMoveInput(float direction)
