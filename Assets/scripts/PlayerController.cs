@@ -128,9 +128,13 @@ public class PlayerController : MonoBehaviour
         // Pink Man 114 PPU'da tam oturuyor; Ninja Frog, Mask Dude ve Virtual Guy çizimleri daha kompakt olduğu için
         // daha düşük PPU (daha büyük dünya boyutu) ile normal karakter boyutlarıyla birebir eşitlenir.
         float cornerPpu = 114f;
-        if (charId == CharacterShopData.NinjaFrogId || charId == CharacterShopData.VirtualGuyId)
+        if (charId == CharacterShopData.NinjaFrogId)
         {
             cornerPpu = 88f;
+        }
+        else if (charId == CharacterShopData.VirtualGuyId)
+        {
+            cornerPpu = 98f;
         }
         else if (charId == CharacterShopData.MaskDudeId)
         {
