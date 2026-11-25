@@ -1130,9 +1130,13 @@ public class MultiplayerManager : MonoBehaviour
         if (tex == null || tex.height <= 0) return;
 
         float cornerPpu = 114f;
-        if (charId == CharacterShopData.NinjaFrogId || charId == CharacterShopData.VirtualGuyId)
+        if (charId == CharacterShopData.NinjaFrogId)
         {
             cornerPpu = 88f;
+        }
+        else if (charId == CharacterShopData.VirtualGuyId)
+        {
+            cornerPpu = 98f;
         }
         else if (charId == CharacterShopData.MaskDudeId)
         {
