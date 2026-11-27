@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 
@@ -56,12 +56,12 @@ public class SettingsManager : MonoBehaviour
 
     /// <summary>
     /// Ayarlar panelindeki butona tıklandığında modları sırayla değiştirir.
-    /// 0 = Tuşlar, 1 = Jiroskop (Eğim)
+    /// 0 = Tuşlar, 1 = Jiroskop (Eğim), 2 = Analog
     /// </summary>
     public void KontrolModunuDegistir()
     {
         int mevcutMod = PlayerPrefs.GetInt("ControlMode", 0);
-        int yeniMod = (mevcutMod == 0) ? 1 : 0;
+        int yeniMod = (mevcutMod + 1) % 3;
         PlayerPrefs.SetInt("ControlMode", yeniMod);
         PlayerPrefs.Save();
         GuncelleKontrolText(yeniMod);
@@ -79,7 +79,9 @@ public class SettingsManager : MonoBehaviour
     {
         if (kontrolButonText != null)
         {
-            kontrolButonText.text = (mode == 1) ? "JIROSKOP" : "TUS";
+            if (mode == 1) kontrolButonText.text = "JİROSKOP";
+            else if (mode == 2) kontrolButonText.text = "ANALOG";
+            else kontrolButonText.text = "TUŞ";
         }
     }
 

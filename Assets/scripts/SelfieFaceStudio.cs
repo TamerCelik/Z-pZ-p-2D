@@ -454,11 +454,21 @@ public class SelfieFaceStudio : MonoBehaviour
     {
         if (webCamTexture == null || cameraFeedRect == null || cameraFeedRawImage == null) return;
 
-        int rotAngle = webCamTexture.videoRotationAngle;
+        int rotAngle = ((webCamTexture.videoRotationAngle % 360) + 360) % 360;
         cameraFeedRect.localEulerAngles = new Vector3(0f, 0f, -rotAngle);
 
-        float scaleX = activeCamIsFrontFacing ? -1f : 1f;
+        // 90 veya 270 derece döndürülmüş mobil kamera sensörlerinde ekranın yatay (selfie ayna) ekseni local Y,
+        // dikey ekseni ise local X olur. Dönüş öncesi scaleX = -1 vermek görüntüyü telefonda baş aşağı (ters) çevirir!
+        bool isQuarterTurn = (rotAngle == 90 || rotAngle == 270);
+        float scaleX = 1f;
         float scaleY = webCamTexture.videoVerticallyMirrored ? -1f : 1f;
+        if (activeCamIsFrontFacing)
+        {
+            if (isQuarterTurn)
+                scaleY = -scaleY;
+            else
+                scaleX = -scaleX;
+        }
         cameraFeedRect.localScale = new Vector3(scaleX, scaleY, 1f);
 
         float aspect = (float)webCamTexture.width / Mathf.Max(1, webCamTexture.height);

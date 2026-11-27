@@ -293,7 +293,9 @@ public class GameManager : MonoBehaviour
     {
         if (kontrolButonText != null)
         {
-            kontrolButonText.text = (mode == 1) ? "JIROSKOP" : "TUS";
+            if (mode == 1) kontrolButonText.text = "JİROSKOP";
+            else if (mode == 2) kontrolButonText.text = "ANALOG";
+            else kontrolButonText.text = "TUŞ";
         }
     }
 
@@ -794,8 +796,13 @@ public class GameManager : MonoBehaviour
         if (pauseButton != null) pauseButton.SetActive(false);
         if (pausePanel != null) pausePanel.SetActive(false);
 
-        // Mobil butonları GameOver anında otomatik gizle
+        // Mobil butonları ve analog çubuğu GameOver anında otomatik gizle
         hiddenMobileButtons.Clear();
+        PlayerController pcOver = Object.FindFirstObjectByType<PlayerController>();
+        if (pcOver != null)
+        {
+            pcOver.HideAllMobileControls();
+        }
         if (mobileControlsPanel != null)
         {
             mobileControlsPanel.SetActive(false);
@@ -1032,13 +1039,13 @@ public class GameManager : MonoBehaviour
     }
 
     /// <summary>
-    /// Kontrol modunu (0: Tuşlar <-> 1: Jiroskop) değiştirir ve anında uygular.
+    /// Kontrol modunu (0: Tuşlar -> 1: Jiroskop -> 2: Analog) sırayla değiştirir ve anında uygular.
     /// UI butonlarının OnClick olayına atanabilir.
     /// </summary>
     public void KontrolModunuDegistir()
     {
         int current = PlayerPrefs.GetInt("ControlMode", 0);
-        int next = (current == 0) ? 1 : 0;
+        int next = (current + 1) % 3;
         PlayerPrefs.SetInt("ControlMode", next);
         PlayerPrefs.Save();
 

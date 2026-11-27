@@ -420,7 +420,12 @@ public class MultiplayerManager : MonoBehaviour
         GameManager gm = GameManager.Instance;
         if (gm != null)
         {
-            if (gm.player != null) gm.player.SetActive(false);
+            if (gm.player != null)
+            {
+                PlayerController pc = gm.player.GetComponent<PlayerController>();
+                if (pc != null) pc.HideAllMobileControls();
+                gm.player.SetActive(false);
+            }
             if (gm.pauseButton != null) gm.pauseButton.SetActive(false);
 
             MobileButton[] mobileButtons = FindObjectsByType<MobileButton>(FindObjectsSortMode.None);

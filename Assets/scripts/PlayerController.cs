@@ -24,7 +24,7 @@ public class PlayerController : MonoBehaviour
     public float jumpBufferTime = 0.12f;
     private float jumpBufferCounter;
 
-    [Header("Kontrol Modu (0: Butonlar, 1: Jiroskop/Eğim)")]
+    [Header("Kontrol Modu (0: Butonlar, 1: Jiroskop/Eğim, 2: Analog)")]
     public int controlMode = 0;
     [Tooltip("Jiroskop eğim hassasiyeti")]
     public float tiltSensitivity = 3f;
@@ -33,6 +33,8 @@ public class PlayerController : MonoBehaviour
     public GameObject leftButtonObj;
     public GameObject rightButtonObj;
     public GameObject jumpButtonObj;
+    public GameObject bottomBarObj;
+    private MobileAnalogStick analogStick;
 
     [Header("Zemin Kontrolü & Zıplama Kilidi")]
     public Transform ayakNoktasi;
@@ -154,16 +156,40 @@ public class PlayerController : MonoBehaviour
 
     public void ApplyControlModeUI()
     {
-        if (leftButtonObj == null) leftButtonObj = GameObject.Find("Btn_Sol");
-        if (rightButtonObj == null) rightButtonObj = GameObject.Find("Btn_Sag");
-        if (jumpButtonObj == null) jumpButtonObj = GameObject.Find("Btn_Zirla");
+        if (leftButtonObj == null) leftButtonObj = FindUiObjectByName("Btn_Sol");
+        if (rightButtonObj == null) rightButtonObj = FindUiObjectByName("Btn_Sag");
+        if (jumpButtonObj == null) jumpButtonObj = FindUiObjectByName("Btn_Zirla");
+        if (bottomBarObj == null) bottomBarObj = FindUiObjectByName("BottomBar");
+
+        mobileMoveInput = 0f;
+
+        if (controlMode == 2) // Analog Modu: Alt bar ve tüm butonlar kalkar, yerine sadece Analog görünür
+        {
+            if (bottomBarObj != null) bottomBarObj.SetActive(false);
+            if (leftButtonObj != null) leftButtonObj.SetActive(false);
+            if (rightButtonObj != null) rightButtonObj.SetActive(false);
+            if (jumpButtonObj != null) jumpButtonObj.SetActive(false);
+
+            EnsureAnalogStickCreated();
+            if (analogStick != null)
+            {
+                analogStick.gameObject.SetActive(true);
+                analogStick.ResetStickImmediate();
+            }
+            return;
+        }
+
+        // Tuş veya Jiroskop modunda alt bar açık, analog kapalı
+        if (analogStick != null) analogStick.gameObject.SetActive(false);
+        if (bottomBarObj != null) bottomBarObj.SetActive(true);
+        if (jumpButtonObj != null) jumpButtonObj.SetActive(true);
 
         if (controlMode == 1) // Jiroskop / Eğim Modu
         {
             if (leftButtonObj != null) leftButtonObj.SetActive(false);
             if (rightButtonObj != null) rightButtonObj.SetActive(false);
         }
-        else // Standart Buton Modu
+        else // Standart Buton Modu (0)
         {
             if (leftButtonObj != null) leftButtonObj.SetActive(true);
             if (rightButtonObj != null) rightButtonObj.SetActive(true);
@@ -171,6 +197,64 @@ public class PlayerController : MonoBehaviour
 
         int buttonLayout = PlayerPrefs.GetInt("ButtonLayout", 0);
         ApplyButtonLayoutPositions(buttonLayout);
+    }
+
+    public void HideAllMobileControls()
+    {
+        mobileMoveInput = 0f;
+        if (leftButtonObj != null) leftButtonObj.SetActive(false);
+        if (rightButtonObj != null) rightButtonObj.SetActive(false);
+        if (jumpButtonObj != null) jumpButtonObj.SetActive(false);
+        if (analogStick != null) analogStick.gameObject.SetActive(false);
+    }
+
+    private void EnsureAnalogStickCreated()
+    {
+        if (analogStick != null) return;
+
+        Transform canvasTr = null;
+        int siblingIdx = -1;
+        if (bottomBarObj != null && bottomBarObj.transform.parent != null)
+        {
+            canvasTr = bottomBarObj.transform.parent;
+            siblingIdx = bottomBarObj.transform.GetSiblingIndex() + 1;
+        }
+        else if (jumpButtonObj != null && jumpButtonObj.transform.parent != null)
+        {
+            canvasTr = jumpButtonObj.transform.parent;
+            siblingIdx = jumpButtonObj.transform.GetSiblingIndex();
+        }
+        else
+        {
+            Canvas c = Object.FindFirstObjectByType<Canvas>();
+            if (c != null) canvasTr = c.transform;
+        }
+
+        if (canvasTr != null)
+        {
+            analogStick = MobileAnalogStick.CreateUnderCanvas(canvasTr, siblingIdx);
+        }
+    }
+
+    private static GameObject FindUiObjectByName(string objName)
+    {
+        GameObject active = GameObject.Find(objName);
+        if (active != null) return active;
+
+        Canvas[] canvases = Object.FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        for (int c = 0; c < canvases.Length; c++)
+        {
+            if (canvases[c] == null) continue;
+            Transform[] children = canvases[c].GetComponentsInChildren<Transform>(true);
+            for (int i = 0; i < children.Length; i++)
+            {
+                if (children[i] != null && children[i].name == objName)
+                {
+                    return children[i].gameObject;
+                }
+            }
+        }
+        return null;
     }
 
     private void ApplyButtonLayoutPositions(int buttonLayout)
