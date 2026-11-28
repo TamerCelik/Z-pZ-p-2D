@@ -34,6 +34,7 @@ public class GameManager : MonoBehaviour
     public GameObject ayarlarSubPanel;
     public Slider sesSlider;
     public TextMeshProUGUI kontrolButonText;
+    private KawaiiControlSelectorUI kawaiiControlSelector;
 
     [Header("Ses Efektleri")]
     [Tooltip("Can alındığında çalan ses efekti")]
@@ -141,7 +142,11 @@ public class GameManager : MonoBehaviour
 
         if (gameOverPanel != null) gameOverPanel.SetActive(false);
         if (pausePanel != null) pausePanel.SetActive(false);
-        if (ayarlarSubPanel != null) ayarlarSubPanel.SetActive(false);
+        if (ayarlarSubPanel != null)
+        {
+            kawaiiControlSelector = KawaiiControlSelectorUI.Attach(ayarlarSubPanel, SetControlMode);
+            ayarlarSubPanel.SetActive(false);
+        }
         if (pauseButton != null) pauseButton.SetActive(true);
         if (mobileControlsPanel != null) mobileControlsPanel.SetActive(true);
 
@@ -150,7 +155,7 @@ public class GameManager : MonoBehaviour
         AudioListener.volume = kayitliSes;
         if (sesSlider != null) sesSlider.value = kayitliSes;
 
-        GuncelleKontrolText(PlayerPrefs.GetInt("ControlMode", 0));
+        GuncelleKontrolText(KawaiiControlSelectorUI.GetNormalizedControlMode());
         GuncelleTusYeriText(PlayerPrefs.GetInt("ButtonLayout", 0));
     }
 
@@ -249,8 +254,13 @@ public class GameManager : MonoBehaviour
         // Ses ve kontrol metinlerini hazırla
         float kayitliSes = PlayerPrefs.GetFloat("OyunSesi", 1f);
         if (sesSlider != null) sesSlider.value = kayitliSes;
-        GuncelleKontrolText(PlayerPrefs.GetInt("ControlMode", 0));
+        int kayitliMod = KawaiiControlSelectorUI.GetNormalizedControlMode();
+        GuncelleKontrolText(kayitliMod);
         GuncelleTusYeriText(PlayerPrefs.GetInt("ButtonLayout", 0));
+        if (ayarlarSubPanel != null && kawaiiControlSelector == null)
+        {
+            kawaiiControlSelector = KawaiiControlSelectorUI.Attach(ayarlarSubPanel, SetControlMode);
+        }
     }
 
     public void ResumeGame()
@@ -266,6 +276,7 @@ public class GameManager : MonoBehaviour
         PlayerController pc = Object.FindFirstObjectByType<PlayerController>();
         if (pc != null)
         {
+            pc.controlMode = KawaiiControlSelectorUI.GetNormalizedControlMode();
             pc.SetMobileMoveInput(0f);
             pc.ApplyControlModeUI();
         }
@@ -273,7 +284,15 @@ public class GameManager : MonoBehaviour
 
     public void OpenSettingsSubPanel()
     {
-        if (ayarlarSubPanel != null) ayarlarSubPanel.SetActive(true);
+        if (ayarlarSubPanel != null)
+        {
+            if (kawaiiControlSelector == null)
+            {
+                kawaiiControlSelector = KawaiiControlSelectorUI.Attach(ayarlarSubPanel, SetControlMode);
+            }
+            ayarlarSubPanel.SetActive(true);
+            kawaiiControlSelector.RefreshVisuals(KawaiiControlSelectorUI.GetNormalizedControlMode());
+        }
     }
 
     public void CloseSettingsSubPanel()
@@ -293,9 +312,7 @@ public class GameManager : MonoBehaviour
     {
         if (kontrolButonText != null)
         {
-            if (mode == 1) kontrolButonText.text = "JİROSKOP";
-            else if (mode == 2) kontrolButonText.text = "ANALOG";
-            else kontrolButonText.text = "TUŞ";
+            kontrolButonText.text = (mode == KawaiiControlSelectorUI.ModeJoystick) ? "JOYSTİCK" : "YÖN TUŞLARI";
         }
     }
 
@@ -1039,22 +1056,35 @@ public class GameManager : MonoBehaviour
     }
 
     /// <summary>
-    /// Kontrol modunu (0: Tuşlar -> 1: Jiroskop -> 2: Analog) sırayla değiştirir ve anında uygular.
-    /// UI butonlarının OnClick olayına atanabilir.
+    /// Kontrol modunu Yön Tuşları (0) ve Joystick (2) arasında değiştirir ve anında uygular.
     /// </summary>
     public void KontrolModunuDegistir()
     {
-        int current = PlayerPrefs.GetInt("ControlMode", 0);
-        int next = (current + 1) % 3;
-        PlayerPrefs.SetInt("ControlMode", next);
+        int current = KawaiiControlSelectorUI.GetNormalizedControlMode();
+        int next = (current == KawaiiControlSelectorUI.ModeJoystick)
+            ? KawaiiControlSelectorUI.ModeButtons
+            : KawaiiControlSelectorUI.ModeJoystick;
+        SetControlMode(next);
+    }
+
+    public void SetControlMode(int mode)
+    {
+        int normalized = (mode == KawaiiControlSelectorUI.ModeJoystick)
+            ? KawaiiControlSelectorUI.ModeJoystick
+            : KawaiiControlSelectorUI.ModeButtons;
+        PlayerPrefs.SetInt("ControlMode", normalized);
         PlayerPrefs.Save();
 
-        GuncelleKontrolText(next);
+        GuncelleKontrolText(normalized);
+        if (kawaiiControlSelector != null)
+        {
+            kawaiiControlSelector.RefreshVisuals(normalized);
+        }
 
         PlayerController pc = Object.FindFirstObjectByType<PlayerController>();
         if (pc != null)
         {
-            pc.controlMode = next;
+            pc.controlMode = normalized;
             pc.ApplyControlModeUI();
         }
     }
