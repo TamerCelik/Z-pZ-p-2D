@@ -80,20 +80,6 @@ Assets/
     └── LeaderboardService.cs    # Global skor tablosu servis bağlantısı
 ```
 
----
-
-## Kurulum ve Çalıştırma
-
-1. **Gereksinimler:** **Unity 6 (`6000.6.4f1` veya uyumlu 6000.x sürümü)** ve Universal Render Pipeline (URP 2D).
-2. Depoyu klonlayın:
-   ```bash
-   git clone https://github.com/TamerCelik/Z-pZ-p-2D.git
-   ```
-3. **Unity Hub** üzerinden projeyi ekleyin ve açın.
-4. `Assets/Scenes/MenuScene.unity` sahnesini açıp **Play** tuşuna basarak oyunu tüm menü, mağaza, solo ve 1v1 düello özellikleriyle başlatabilirsiniz.
-
----
-
 ## Geliştirici
 
 - **Tamer Çelik** — [GitHub (@TamerCelik)](https://github.com/TamerCelik)
