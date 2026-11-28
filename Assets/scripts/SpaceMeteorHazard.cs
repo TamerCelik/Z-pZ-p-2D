@@ -17,15 +17,34 @@ public class SpaceMeteorSpawner : MonoBehaviour
 
     private SkyCycleManager skyCycle;
     private float nextMeteorTimer = 2.0f;
+    private System.Random duelMeteorRng;
 
     private static Sprite cachedMeteorSprite;
     private static Sprite cachedWarningSprite;
     private static Sprite cachedTrailSprite;
 
+    private float NextMeteorValue()
+    {
+        if (MultiplayerManager.IsDuelActive && duelMeteorRng != null)
+            return (float)duelMeteorRng.NextDouble();
+        return Random.value;
+    }
+
+    private float NextMeteorRange(float min, float max)
+    {
+        if (MultiplayerManager.IsDuelActive && duelMeteorRng != null)
+            return min + (float)duelMeteorRng.NextDouble() * (max - min);
+        return Random.Range(min, max);
+    }
+
     private void Start()
     {
         skyCycle = Object.FindAnyObjectByType<SkyCycleManager>();
-        nextMeteorTimer = Random.Range(1.8f, 3.0f);
+        if (MultiplayerManager.IsDuelActive && MultiplayerManager.Instance != null)
+        {
+            duelMeteorRng = new System.Random(MultiplayerManager.Instance.SharedSeed ^ 0x3F91C2B7);
+        }
+        nextMeteorTimer = NextMeteorRange(1.8f, 3.0f);
     }
 
     private void Update()
@@ -49,7 +68,7 @@ public class SpaceMeteorSpawner : MonoBehaviour
             float difficulty = Mathf.Clamp01((effectiveScore - spaceStartScore) / 1000f);
             float minInt = Mathf.Lerp(3.2f, minSpawnInterval, difficulty);
             float maxInt = Mathf.Lerp(5.0f, maxSpawnInterval, difficulty);
-            nextMeteorTimer = Random.Range(minInt, maxInt);
+            nextMeteorTimer = NextMeteorRange(minInt, maxInt);
         }
     }
 
@@ -58,24 +77,25 @@ public class SpaceMeteorSpawner : MonoBehaviour
         Camera cam = Camera.main;
         float halfH = cam != null ? cam.orthographicSize : 5f;
         float halfW = cam != null ? halfH * cam.aspect : 2.8f;
-        float safeX = Mathf.Max(1.1f, halfW - 0.28f);
+        bool isDuel = MultiplayerManager.IsDuelActive && duelMeteorRng != null;
+        float safeX = isDuel ? 1.78f : Mathf.Max(1.1f, halfW - 0.28f);
 
-        // %45 sol/sağ köşelerden, %30 oyuncunun yakınından, %25 tamamen rastgele X'ten gelsin
+        // Düello modunda iki cihazda birebir aynı X koordinatında doğması için yerel oyuncuya nişan alma yerine ortak tohum kullanılır
         float spawnX;
-        float roll = Random.value;
+        float roll = NextMeteorValue();
         if (roll < 0.45f)
         {
-            float side = Random.value < 0.5f ? -1f : 1f;
-            spawnX = side * Random.Range(safeX * 0.60f, safeX);
+            float side = NextMeteorValue() < 0.5f ? -1f : 1f;
+            spawnX = side * NextMeteorRange(safeX * 0.60f, safeX);
         }
-        else if (roll < 0.75f && GameManager.Instance != null && GameManager.Instance.player != null)
+        else if (!isDuel && roll < 0.75f && GameManager.Instance != null && GameManager.Instance.player != null)
         {
             float px = GameManager.Instance.player.transform.position.x;
             spawnX = Mathf.Clamp(px + Random.Range(-0.65f, 0.65f), -safeX, safeX);
         }
         else
         {
-            spawnX = Random.Range(-safeX, safeX);
+            spawnX = NextMeteorRange(-safeX, safeX);
         }
 
         // 1. Üst kenarda yanıp sönen tehlike uyarısı (!)
@@ -107,15 +127,15 @@ public class SpaceMeteorSpawner : MonoBehaviour
 
         // 2. Alevli piksel meteoru üstten fırlat
         float diff = Mathf.Clamp01((effectiveScore - spaceStartScore) / 1000f);
-        float fallSpeed = Mathf.Lerp(baseFallSpeed, maxFallSpeed, diff) + Random.Range(-0.35f, 0.45f);
+        float fallSpeed = Mathf.Lerp(baseFallSpeed, maxFallSpeed, diff) + NextMeteorRange(-0.35f, 0.45f);
         // Köşelerden gelen meteorlar ekran dışına taşmadan hafifçe içeri veya düz süzülsün
         float driftX = (Mathf.Abs(spawnX) > safeX * 0.60f)
-            ? -Mathf.Sign(spawnX) * Random.Range(0.05f, 0.42f)
-            : Random.Range(-0.42f, 0.42f);
+            ? -Mathf.Sign(spawnX) * NextMeteorRange(0.05f, 0.42f)
+            : NextMeteorRange(-0.42f, 0.42f);
 
         GameObject meteorObj = new GameObject("SpaceMeteorHazard");
         meteorObj.transform.position = new Vector3(spawnX, halfH + 0.75f, 0f);
-        float scale = Random.Range(0.50f, 0.66f);
+        float scale = NextMeteorRange(0.50f, 0.66f);
         meteorObj.transform.localScale = new Vector3(scale, scale, 1f);
 
         SpriteRenderer sr = meteorObj.AddComponent<SpriteRenderer>();
@@ -300,7 +320,23 @@ public class SpaceMeteorProjectile : MonoBehaviour
         if (transform.position.y < destroyY)
         {
             Destroy(gameObject);
+            return;
         }
+
+        // Düello modunda karşı oyuncuya (veya bota) çarpma kontrolü
+        if (!hitTriggered && MultiplayerManager.IsDuelActive && MultiplayerManager.Instance != null)
+        {
+            MultiplayerManager.Instance.CheckMeteorHitOpponent(this);
+        }
+    }
+
+    public bool TryConsumeHit()
+    {
+        if (hitTriggered) return false;
+        hitTriggered = true;
+        JumpDustEffect.SpawnJumpDust(transform.position);
+        Destroy(gameObject);
+        return true;
     }
 
     private void OnTriggerEnter2D(Collider2D other)
