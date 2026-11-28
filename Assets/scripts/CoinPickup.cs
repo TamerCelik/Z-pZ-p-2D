@@ -36,6 +36,11 @@ public class CoinPickup : MonoBehaviour
     private int currentFrameIndex;
     private bool isCollected;
 
+    /// <summary>
+    /// Düello modunda iki oyuncu arasında ortak olan deterministik item kimliği (-1: tek oyunculu).
+    /// </summary>
+    public int DuelItemId { get; set; } = -1;
+
     private static readonly Color NormalCherryTint = Color.white;
     private static readonly Color RareGoldA = new Color(1f, 0.95f, 0.48f, 1f);
     private static readonly Color RareGoldB = new Color(1f, 0.78f, 0.18f, 1f);
@@ -189,6 +194,11 @@ public class CoinPickup : MonoBehaviour
         isCollected = true;
         if (triggerCollider != null) triggerCollider.enabled = false;
 
+        if (DuelItemId >= 0 && MultiplayerManager.IsDuelActive && MultiplayerManager.Instance != null)
+        {
+            MultiplayerManager.Instance.NotifyLocalItemCollected(DuelItemId);
+        }
+
         CharacterShopData.AddCoins(coinValue);
 
         AudioClip sfx = config != null ? config.coinCollectSound : null;
@@ -205,6 +215,21 @@ public class CoinPickup : MonoBehaviour
         Vector3 worldScale = transform.lossyScale;
         transform.SetParent(null, true);
         transform.localScale = worldScale * 1.15f;
+        StartCoroutine(PlayCollectedAndDestroy());
+    }
+
+    /// <summary>
+    /// Düello modunda rakip bu coini aldığında yerel oyuncuya coin vermeden ekrandan kaldırır.
+    /// </summary>
+    public void ConsumeRemotely()
+    {
+        if (isCollected) return;
+        isCollected = true;
+        if (triggerCollider != null) triggerCollider.enabled = false;
+
+        Vector3 worldScale = transform.lossyScale;
+        transform.SetParent(null, true);
+        transform.localScale = worldScale;
         StartCoroutine(PlayCollectedAndDestroy());
     }
 
