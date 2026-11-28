@@ -276,10 +276,30 @@ public class MultiplayerManager : MonoBehaviour
     private TMP_InputField joinCodeInput;
     private Coroutine lobbyWaitCoroutine;
 
-    // Oyun İçi Düello HUD
+    // Oyun İçi Düello HUD (Gelişmiş Piksel Arena Skorboard)
+    private Sprite duelScoreboardFrameSprite;
+    private Sprite duelCrownSprite;
     private GameObject duelTopHudObj;
+    private Image duelMyAvatarImg;
+    private Image duelOppAvatarImg;
+    private string duelLoadedOppCharId;
+    private readonly Image[] duelMyHeartImgs = new Image[3];
+    private readonly Image[] duelOppHeartImgs = new Image[3];
+    private TextMeshProUGUI duelMyNameTmp;
+    private TextMeshProUGUI duelOppNameTmp;
     private TextMeshProUGUI duelMyStatusText;
     private TextMeshProUGUI duelOppStatusText;
+    private TextMeshProUGUI duelMyElimBadgeTmp;
+    private TextMeshProUGUI duelOppElimBadgeTmp;
+    private GameObject duelDeltaPillObj;
+    private Image duelDeltaPillBg;
+    private TextMeshProUGUI duelDeltaTmp;
+    private RectTransform duelCrownRt;
+    private RectTransform duelTugLeftRt;
+    private RectTransform duelTugRightRt;
+    private RectTransform duelTugSparkRt;
+    private float displayedDuelTugRatio = 0.5f;
+    private float displayedCrownAnchorX = 0.082f;
     private GameObject sabotageBannerObj;
     private TextMeshProUGUI sabotageBannerText;
     private GameObject spectatorOverlayObj;
@@ -1546,28 +1566,224 @@ public class MultiplayerManager : MonoBehaviour
         }
     }
 
+    private static Sprite GetCharacterPortraitSprite(string charId)
+    {
+        CharacterShopConfig cfg = CharacterShopConfig.Load();
+        if (cfg != null)
+        {
+            CharacterShopConfig.CharacterVisualEntry entry = cfg.GetVisualEntry(charId);
+            if (entry != null && entry.idleFrames != null && entry.idleFrames.Length > 0 && entry.idleFrames[0] != null)
+            {
+                return entry.idleFrames[0];
+            }
+        }
+        return null;
+    }
+
+    private static Sprite LoadCrispUISprite(string resourcePath)
+    {
+        Sprite sp = Resources.Load<Sprite>(resourcePath);
+        if (sp != null) return sp;
+
+        Texture2D tex = Resources.Load<Texture2D>(resourcePath);
+        if (tex != null)
+        {
+            tex.filterMode = FilterMode.Point;
+            return Sprite.Create(tex, new Rect(0f, 0f, tex.width, tex.height), new Vector2(0.5f, 0.5f), 100f);
+        }
+        return null;
+    }
+
     private void BuildGameplayDuelHUD(Transform canvasTr)
     {
-        // 1. Üst Orta Karşılaştırma (VS) Barı
+        // Solo moddaki üst CAN / SKOR yazılarını gizle (Pause ve Coin olduğu yerde temiz kalır)
+        GameManager gm = GameManager.Instance != null ? GameManager.Instance : FindFirstObjectByType<GameManager>();
+        if (gm != null)
+        {
+            if (gm.scoreText != null) gm.scoreText.gameObject.SetActive(false);
+            if (gm.healthText != null) gm.healthText.gameObject.SetActive(false);
+        }
+
+        displayedDuelTugRatio = 0.5f;
+        displayedCrownAnchorX = 0.082f;
+        duelLoadedOppCharId = string.Empty;
+
+        // 1. Üst Piksel Arena Düello Skorboardu (Pause ve Coin ile sıfır çakışma)
         duelTopHudObj = CreateUIObject("DuelTopVSBar", canvasTr);
-        SetAnchors(duelTopHudObj, new Vector2(0.16f, 0.885f), new Vector2(0.84f, 0.940f));
+        SetAnchors(duelTopHudObj, new Vector2(0.018f, 0.922f), new Vector2(0.860f, 0.990f));
+
         Image vsBg = duelTopHudObj.AddComponent<Image>();
-        vsBg.sprite = pillSprite;
-        vsBg.type = Image.Type.Sliced;
-        vsBg.color = new Color(0.10f, 0.14f, 0.24f, 0.90f);
+        if (duelScoreboardFrameSprite == null)
+        {
+            duelScoreboardFrameSprite = LoadCrispUISprite("UI/duel_scoreboard_frame");
+        }
+        if (duelScoreboardFrameSprite != null)
+        {
+            vsBg.sprite = duelScoreboardFrameSprite;
+            vsBg.type = Image.Type.Simple;
+            vsBg.color = Color.white;
+        }
+        else
+        {
+            vsBg.sprite = pillSprite;
+            vsBg.type = Image.Type.Sliced;
+            vsBg.color = new Color(0.10f, 0.14f, 0.24f, 0.94f);
+        }
+        vsBg.raycastTarget = false;
 
-        duelMyStatusText = CreateLabel(duelTopHudObj.transform, "MyStat", "SEN (3 CAN): 0",
-            new Vector2(0.03f, 0.08f), new Vector2(0.46f, 0.92f), 8.5f, 13f, TextAlignmentOptions.Left, new Color(0.48f, 0.98f, 0.62f, 1f), true);
+        // Sol Karakter Portresi (Oyuncu + Varsa Selfie Kafası)
+        GameObject myPortraitObj = CreateUIObject("MyAvatar", duelTopHudObj.transform);
+        SetAnchors(myPortraitObj, new Vector2(0.038f, 0.275f), new Vector2(0.126f, 0.775f));
+        duelMyAvatarImg = myPortraitObj.AddComponent<Image>();
+        duelMyAvatarImg.sprite = GetCharacterPortraitSprite(CharacterShopData.GetSelectedCharacterId());
+        duelMyAvatarImg.preserveAspect = true;
+        duelMyAvatarImg.raycastTarget = false;
 
-        CreateLabel(duelTopHudObj.transform, "VS", "VS",
-            new Vector2(0.46f, 0.10f), new Vector2(0.54f, 0.90f), 9f, 13f, TextAlignmentOptions.Center, new Color(1f, 0.82f, 0.24f, 1f), true);
+        if (CharacterShopData.IsCustomFaceEnabled())
+        {
+            Sprite faceSp = CharacterShopData.LoadCustomFaceSprite();
+            if (faceSp != null)
+            {
+                GameObject myFaceObj = CreateUIObject("MySelfieHead", myPortraitObj.transform);
+                SetAnchors(myFaceObj, new Vector2(0.14f, 0.30f), new Vector2(0.86f, 0.96f));
+                Image faceImg = myFaceObj.AddComponent<Image>();
+                faceImg.sprite = faceSp;
+                faceImg.preserveAspect = true;
+                faceImg.raycastTarget = false;
+            }
+        }
 
-        duelOppStatusText = CreateLabel(duelTopHudObj.transform, "OppStat", $"{OpponentName} (3 CAN): 0",
-            new Vector2(0.54f, 0.08f), new Vector2(0.97f, 0.92f), 8.5f, 13f, TextAlignmentOptions.Right, new Color(0.58f, 0.88f, 1f, 1f), true);
+        // Sağ Karakter Portresi (Rakip)
+        GameObject oppPortraitObj = CreateUIObject("OppAvatar", duelTopHudObj.transform);
+        SetAnchors(oppPortraitObj, new Vector2(0.874f, 0.275f), new Vector2(0.962f, 0.775f));
+        duelOppAvatarImg = oppPortraitObj.AddComponent<Image>();
+        duelLoadedOppCharId = OpponentCharId;
+        duelOppAvatarImg.sprite = GetCharacterPortraitSprite(duelLoadedOppCharId);
+        duelOppAvatarImg.preserveAspect = true;
+        duelOppAvatarImg.raycastTarget = false;
+        oppPortraitObj.transform.localScale = new Vector3(-1f, 1f, 1f); // Rakip sola (merkeze) baksın
+
+        // Üst Satır İsimler: Sol "SEN", Sağ Rakip İsmi
+        duelMyNameTmp = CreateLabel(duelTopHudObj.transform, "MyName", "SEN",
+            new Vector2(0.146f, 0.58f), new Vector2(0.422f, 0.87f), 7.5f, 11.5f,
+            TextAlignmentOptions.Left, new Color(0.56f, 0.98f, 0.88f, 1f), true);
+        duelMyNameTmp.fontStyle = FontStyles.Bold;
+
+        string oppUpper = string.IsNullOrEmpty(OpponentName) ? "RAKİP" : OpponentName.ToUpperInvariant();
+        duelOppNameTmp = CreateLabel(duelTopHudObj.transform, "OppName", oppUpper,
+            new Vector2(0.578f, 0.58f), new Vector2(0.854f, 0.87f), 7.0f, 11.5f,
+            TextAlignmentOptions.Right, new Color(1.00f, 0.70f, 0.82f, 1f), true);
+        duelOppNameTmp.fontStyle = FontStyles.Bold;
+
+        // Orta Satır Skorlar + Simetrik 3'er Piksel Kalp
+        duelMyStatusText = CreateLabel(duelTopHudObj.transform, "MyScore", "0",
+            new Vector2(0.146f, 0.23f), new Vector2(0.298f, 0.60f), 9.5f, 16f,
+            TextAlignmentOptions.Left, Color.white, true);
+        duelMyStatusText.fontStyle = FontStyles.Bold;
+
+        duelOppStatusText = CreateLabel(duelTopHudObj.transform, "OppScore", "0",
+            new Vector2(0.702f, 0.23f), new Vector2(0.854f, 0.60f), 9.5f, 16f,
+            TextAlignmentOptions.Right, Color.white, true);
+        duelOppStatusText.fontStyle = FontStyles.Bold;
+
+        Sprite heartSp = GetPixelHeartSprite();
+        for (int i = 0; i < 3; i++)
+        {
+            GameObject mh = CreateUIObject("MyHeart_" + i, duelTopHudObj.transform);
+            float lx0 = 0.302f + i * 0.040f;
+            SetAnchors(mh, new Vector2(lx0, 0.28f), new Vector2(lx0 + 0.037f, 0.56f));
+            Image mhImg = mh.AddComponent<Image>();
+            mhImg.sprite = heartSp;
+            mhImg.preserveAspect = true;
+            mhImg.raycastTarget = false;
+            duelMyHeartImgs[i] = mhImg;
+
+            GameObject oh = CreateUIObject("OppHeart_" + i, duelTopHudObj.transform);
+            float rx0 = 0.581f + (2 - i) * 0.040f; // Merkeze yakın olan son kalp, dıştan içe azalsın
+            SetAnchors(oh, new Vector2(rx0, 0.28f), new Vector2(rx0 + 0.037f, 0.56f));
+            Image ohImg = oh.AddComponent<Image>();
+            ohImg.sprite = heartSp;
+            ohImg.preserveAspect = true;
+            ohImg.raycastTarget = false;
+            duelOppHeartImgs[i] = ohImg;
+        }
+
+        // Elenme Rozetleri (0 can kaldığında kalplerin yerinde yanar)
+        duelMyElimBadgeTmp = CreateLabel(duelTopHudObj.transform, "MyElimBadge", "ELENDİ",
+            new Vector2(0.298f, 0.26f), new Vector2(0.425f, 0.56f), 6.5f, 10f,
+            TextAlignmentOptions.Right, new Color(1.00f, 0.36f, 0.46f, 1f), true);
+        duelMyElimBadgeTmp.fontStyle = FontStyles.Bold;
+        duelMyElimBadgeTmp.gameObject.SetActive(false);
+
+        duelOppElimBadgeTmp = CreateLabel(duelTopHudObj.transform, "OppElimBadge", "ELENDİ",
+            new Vector2(0.575f, 0.26f), new Vector2(0.702f, 0.56f), 6.5f, 10f,
+            TextAlignmentOptions.Left, new Color(1.00f, 0.36f, 0.46f, 1f), true);
+        duelOppElimBadgeTmp.fontStyle = FontStyles.Bold;
+        duelOppElimBadgeTmp.gameObject.SetActive(false);
+
+        // Merkez Altın Elmas İçinde "VS"
+        TextMeshProUGUI vsCenterTmp = CreateLabel(duelTopHudObj.transform, "VS", "VS",
+            new Vector2(0.436f, 0.35f), new Vector2(0.564f, 0.80f), 9.5f, 14.5f,
+            TextAlignmentOptions.Center, new Color(1.00f, 0.98f, 0.90f, 1f), true);
+        vsCenterTmp.fontStyle = FontStyles.Bold;
+
+        // Alt Çekişme (Tug-of-War) Momentum Barı (x: 0.154..0.846, y: 0.111..0.194)
+        GameObject tugLeftObj = CreateUIObject("TugLeftFill", duelTopHudObj.transform);
+        duelTugLeftRt = tugLeftObj.GetComponent<RectTransform>();
+        SetAnchors(tugLeftObj, new Vector2(0.154f, 0.112f), new Vector2(0.500f, 0.192f));
+        Image tugLeftImg = tugLeftObj.AddComponent<Image>();
+        tugLeftImg.color = new Color(0.26f, 0.95f, 0.78f, 1f);
+        tugLeftImg.raycastTarget = false;
+
+        GameObject tugRightObj = CreateUIObject("TugRightFill", duelTopHudObj.transform);
+        duelTugRightRt = tugRightObj.GetComponent<RectTransform>();
+        SetAnchors(tugRightObj, new Vector2(0.500f, 0.112f), new Vector2(0.846f, 0.192f));
+        Image tugRightImg = tugRightObj.AddComponent<Image>();
+        tugRightImg.color = new Color(1.00f, 0.38f, 0.56f, 1f);
+        tugRightImg.raycastTarget = false;
+
+        GameObject tugSparkObj = CreateUIObject("TugSpark", duelTopHudObj.transform);
+        duelTugSparkRt = tugSparkObj.GetComponent<RectTransform>();
+        SetAnchors(tugSparkObj, new Vector2(0.496f, 0.085f), new Vector2(0.504f, 0.220f));
+        Image tugSparkImg = tugSparkObj.AddComponent<Image>();
+        tugSparkImg.color = new Color(1.00f, 0.97f, 0.76f, 1f);
+        tugSparkImg.raycastTarget = false;
+
+        // VS Altında Canlı Puan Farkı Rozeti (+120 / -85)
+        duelDeltaPillObj = CreateUIObject("ScoreDeltaPill", duelTopHudObj.transform);
+        SetAnchors(duelDeltaPillObj, new Vector2(0.415f, -0.25f), new Vector2(0.585f, 0.08f));
+        duelDeltaPillBg = duelDeltaPillObj.AddComponent<Image>();
+        duelDeltaPillBg.sprite = pillSprite;
+        duelDeltaPillBg.type = Image.Type.Sliced;
+        duelDeltaPillBg.color = new Color(0.11f, 0.09f, 0.18f, 0.94f);
+        duelDeltaPillBg.raycastTarget = false;
+
+        duelDeltaTmp = CreateLabel(duelDeltaPillObj.transform, "DeltaTxt", "+0",
+            new Vector2(0.06f, 0.05f), new Vector2(0.94f, 0.95f), 6.5f, 10f,
+            TextAlignmentOptions.Center, new Color(0.46f, 1.00f, 0.68f, 1f), true);
+        duelDeltaTmp.fontStyle = FontStyles.Bold;
+        duelDeltaPillObj.SetActive(false);
+
+        // Lider Oyuncunun Portresi Üstünde Süzülen Altın Piksel Taç
+        if (duelCrownSprite == null)
+        {
+            duelCrownSprite = LoadCrispUISprite("UI/duel_crown_pixel");
+        }
+        if (duelCrownSprite != null)
+        {
+            GameObject crownObj = CreateUIObject("LeaderCrown", duelTopHudObj.transform);
+            duelCrownRt = crownObj.GetComponent<RectTransform>();
+            SetAnchors(crownObj, new Vector2(0.050f, 0.80f), new Vector2(0.114f, 1.15f));
+            Image crownImg = crownObj.AddComponent<Image>();
+            crownImg.sprite = duelCrownSprite;
+            crownImg.preserveAspect = true;
+            crownImg.raycastTarget = false;
+            crownObj.SetActive(false);
+        }
 
         // 2. Roket Sabotaj Uyarı Şeridi
         sabotageBannerObj = CreateUIObject("RocketSabotageBanner", canvasTr);
-        SetAnchors(sabotageBannerObj, new Vector2(0.08f, 0.820f), new Vector2(0.92f, 0.875f));
+        SetAnchors(sabotageBannerObj, new Vector2(0.08f, 0.832f), new Vector2(0.92f, 0.885f));
         Image sabBg = sabotageBannerObj.AddComponent<Image>();
         sabBg.sprite = pillSprite;
         sabBg.type = Image.Type.Sliced;
@@ -3349,18 +3565,145 @@ public class MultiplayerManager : MonoBehaviour
     private void UpdateDuelHudTexts()
     {
         GameManager gm = GameManager.Instance;
-        int myHealth = gm != null ? Mathf.Max(0, gm.health) : 0;
+        if (gm != null)
+        {
+            if (gm.scoreText != null && gm.scoreText.gameObject.activeSelf)
+                gm.scoreText.gameObject.SetActive(false);
+            if (gm.healthText != null && gm.healthText.gameObject.activeSelf)
+                gm.healthText.gameObject.SetActive(false);
+        }
+
+        int myHealth = (gm != null && !localEliminated) ? Mathf.Clamp(gm.health, 0, 3) : 0;
+        int oppHealth = OpponentAlive ? Mathf.Clamp(OpponentHealth, 0, 3) : 0;
         int myScore = Mathf.RoundToInt(GameManager.currentScore);
+        int oppScore = OpponentScore;
+
+        // Rakip ismi veya kostümü sonradan güncellendiyse tazele
+        if (duelOppNameTmp != null)
+        {
+            string oppUpper = string.IsNullOrEmpty(OpponentName) ? "RAKİP" : OpponentName.ToUpperInvariant();
+            if (duelOppNameTmp.text != oppUpper) duelOppNameTmp.text = oppUpper;
+        }
+        if (duelOppAvatarImg != null && duelLoadedOppCharId != OpponentCharId && !string.IsNullOrEmpty(OpponentCharId))
+        {
+            duelLoadedOppCharId = OpponentCharId;
+            Sprite sp = GetCharacterPortraitSprite(duelLoadedOppCharId);
+            if (sp != null) duelOppAvatarImg.sprite = sp;
+        }
+        if (duelMyAvatarImg != null)
+        {
+            duelMyAvatarImg.color = localEliminated ? new Color(0.45f, 0.45f, 0.52f, 0.80f) : Color.white;
+        }
+        if (duelOppAvatarImg != null)
+        {
+            duelOppAvatarImg.color = !OpponentAlive ? new Color(0.45f, 0.45f, 0.52f, 0.80f) : Color.white;
+        }
+
+        // Skor renkleri (Öndeki oyuncunun skoru altın sarısı parlar)
+        bool iLead = myScore > oppScore + 2;
+        bool oppLeads = oppScore > myScore + 2;
+        Color leadGold = new Color(1.00f, 0.91f, 0.38f, 1f);
+        Color elimTint = new Color(0.75f, 0.66f, 0.72f, 0.92f);
 
         if (duelMyStatusText != null)
         {
-            duelMyStatusText.text = $"SEN ({myHealth} CAN): {myScore}";
+            duelMyStatusText.text = myScore.ToString();
+            duelMyStatusText.color = localEliminated ? elimTint : (iLead ? leadGold : Color.white);
         }
         if (duelOppStatusText != null)
         {
-            string oppState = OpponentAlive ? $"{OpponentHealth} CAN" : "ELENDİ";
-            duelOppStatusText.text = $"{OpponentName} ({oppState}): {OpponentScore}";
+            duelOppStatusText.text = oppScore.ToString();
+            duelOppStatusText.color = !OpponentAlive ? elimTint : (oppLeads ? leadGold : Color.white);
         }
+
+        // 3'er Piksel Kalp & ELENDİ Rozetleri
+        Color lostHeartCol = new Color(0.20f, 0.14f, 0.26f, 0.55f);
+        bool showMyElim = localEliminated || myHealth <= 0;
+        if (duelMyElimBadgeTmp != null && duelMyElimBadgeTmp.gameObject.activeSelf != showMyElim)
+        {
+            duelMyElimBadgeTmp.gameObject.SetActive(showMyElim);
+        }
+        for (int i = 0; i < duelMyHeartImgs.Length; i++)
+        {
+            if (duelMyHeartImgs[i] == null) continue;
+            if (duelMyHeartImgs[i].gameObject.activeSelf == showMyElim)
+                duelMyHeartImgs[i].gameObject.SetActive(!showMyElim);
+            if (!showMyElim)
+                duelMyHeartImgs[i].color = (i < myHealth) ? Color.white : lostHeartCol;
+        }
+
+        bool showOppElim = !OpponentAlive || oppHealth <= 0;
+        if (duelOppElimBadgeTmp != null && duelOppElimBadgeTmp.gameObject.activeSelf != showOppElim)
+        {
+            duelOppElimBadgeTmp.gameObject.SetActive(showOppElim);
+        }
+        for (int i = 0; i < duelOppHeartImgs.Length; i++)
+        {
+            if (duelOppHeartImgs[i] == null) continue;
+            if (duelOppHeartImgs[i].gameObject.activeSelf == showOppElim)
+                duelOppHeartImgs[i].gameObject.SetActive(!showOppElim);
+            if (!showOppElim)
+                duelOppHeartImgs[i].color = (i < oppHealth) ? Color.white : lostHeartCol;
+        }
+
+        // Canlı Puan Farkı Rozeti (+Δ / -Δ)
+        int diff = myScore - oppScore;
+        if (duelDeltaPillObj != null && duelDeltaTmp != null)
+        {
+            bool showDelta = Mathf.Abs(diff) >= 3;
+            if (duelDeltaPillObj.activeSelf != showDelta)
+                duelDeltaPillObj.SetActive(showDelta);
+            if (showDelta)
+            {
+                if (diff > 0)
+                {
+                    duelDeltaTmp.text = $"+{diff}";
+                    duelDeltaTmp.color = new Color(0.42f, 1.00f, 0.72f, 1f);
+                }
+                else
+                {
+                    duelDeltaTmp.text = diff.ToString();
+                    duelDeltaTmp.color = new Color(1.00f, 0.50f, 0.62f, 1f);
+                }
+            }
+        }
+
+        // Alt Çekişme (Tug-of-War) Momentum Barı
+        if (duelTugLeftRt != null && duelTugRightRt != null)
+        {
+            float targetRatio = Mathf.Clamp(0.5f + (diff / 320f), 0.10f, 0.90f);
+            displayedDuelTugRatio = Mathf.Lerp(displayedDuelTugRatio, targetRatio, Mathf.Clamp01(Time.unscaledDeltaTime * 8f));
+            float splitX = Mathf.Lerp(0.154f, 0.846f, displayedDuelTugRatio);
+
+            duelTugLeftRt.anchorMin = new Vector2(0.154f, 0.112f);
+            duelTugLeftRt.anchorMax = new Vector2(splitX, 0.192f);
+            duelTugRightRt.anchorMin = new Vector2(splitX, 0.112f);
+            duelTugRightRt.anchorMax = new Vector2(0.846f, 0.192f);
+
+            if (duelTugSparkRt != null)
+            {
+                duelTugSparkRt.anchorMin = new Vector2(splitX - 0.004f, 0.085f);
+                duelTugSparkRt.anchorMax = new Vector2(splitX + 0.004f, 0.220f);
+            }
+        }
+
+        // Liderlik Tacı (Öndeki oyuncunun avatarının üstüne yumuşakça süzülür)
+        if (duelCrownRt != null)
+        {
+            bool hasLeader = iLead || oppLeads;
+            if (duelCrownRt.gameObject.activeSelf != hasLeader)
+                duelCrownRt.gameObject.SetActive(hasLeader);
+
+            if (hasLeader)
+            {
+                float targetCenterX = iLead ? 0.082f : 0.918f;
+                displayedCrownAnchorX = Mathf.Lerp(displayedCrownAnchorX, targetCenterX, Mathf.Clamp01(Time.unscaledDeltaTime * 10f));
+                float bob = 0.035f * Mathf.Sin(Time.unscaledTime * 4.2f);
+                duelCrownRt.anchorMin = new Vector2(displayedCrownAnchorX - 0.032f, 0.80f + bob);
+                duelCrownRt.anchorMax = new Vector2(displayedCrownAnchorX + 0.032f, 1.15f + bob);
+            }
+        }
+
         if (spectatorOverlayObj != null && spectatorOverlayObj.activeSelf && spectatorInfoText != null)
         {
             spectatorInfoText.text = $"ELENDİN! • {OpponentName} İZLENİYOR ({OpponentHealth} CAN • SKOR: {OpponentScore})";
