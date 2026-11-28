@@ -70,8 +70,8 @@ public class PlatformMovement : MonoBehaviour
                 screenLimit = Mathf.Clamp(camHalfWidth - 0.7f, 1.0f, 2.3f);
             }
 
-            // Platform barın arkasında tamamen kaybolup ekranın en altına inince silinir
-            destroyY = -cam.orthographicSize - 0.5f;
+            // Platform ekranın en alt sınırını tamamen geçtikten sonra silinir
+            destroyY = cam.transform.position.y - cam.orthographicSize - 0.95f;
         }
 
         SyncOneWayEffector();
