@@ -175,6 +175,7 @@ public class MultiplayerManager : MonoBehaviour
     private float botSelfRocketTimer;
     private float botShieldTimer;
     private float botSuperFeetTimer;
+    private float botSuperTrailTimer;
     private Rigidbody2D botRb;
     private BoxCollider2D botCollider;
     private Transform botFeetTransform;
@@ -452,6 +453,39 @@ public class MultiplayerManager : MonoBehaviour
         UpdateOpponentAvatarVisuals(dt);
         UpdateDuelHudTexts();
         CheckDuelCompletion();
+    }
+
+    private void FixedUpdate()
+    {
+        if (!inActiveDuel || !IsBotMatch || !OpponentAlive || botRb == null || botCollider == null)
+            return;
+        if (SceneManager.GetActiveScene().name != "SampleScene")
+            return;
+
+        SyncBotSuperFeetPlatformCollisions(null);
+    }
+
+    private void SyncBotSuperFeetPlatformCollisions(PlatformMovement[] platforms)
+    {
+        if (botCollider == null || botRb == null) return;
+        if (platforms == null)
+        {
+            platforms = FindObjectsByType<PlatformMovement>(FindObjectsSortMode.None);
+        }
+
+        bool botOneWay = botSuperFeetTimer > 0f && botSelfRocketTimer <= 0f;
+        float botMinY = botCollider.bounds.min.y;
+        bool rising = botRb.linearVelocity.y > 0.15f;
+
+        for (int i = 0; i < platforms.Length; i++)
+        {
+            if (platforms[i] == null) continue;
+            Collider2D pCol = platforms[i].GetComponent<Collider2D>();
+            if (pCol == null) continue;
+
+            bool ignoreForBot = botOneWay && (rising || botMinY < (pCol.bounds.max.y - 0.06f));
+            Physics2D.IgnoreCollision(botCollider, pCol, ignoreForBot);
+        }
     }
 
     // =========================================================================
@@ -2369,6 +2403,9 @@ public class MultiplayerManager : MonoBehaviour
 
         // Bot yalnızca sahnedeki gerçek bir Roket itemini topladığında (CheckBotSharedItemPickups) roketle uçar!
 
+        bool botHasSuperFeet = botSuperFeetTimer > 0f;
+        SyncBotSuperFeetPlatformCollisions(platforms);
+
         // Uzay evresindeki düşen meteorları algıla (kaçınma ve güvenli platform seçimi için)
         SpaceMeteorProjectile[] activeMeteors = FindObjectsByType<SpaceMeteorProjectile>(FindObjectsSortMode.None);
 
@@ -2388,15 +2425,17 @@ public class MultiplayerManager : MonoBehaviour
         if (botUngroundLockTimer <= 0f && rawGroundHit != null)
         {
             Bounds gb = rawGroundHit.bounds;
-            if (botRb.linearVelocity.y <= 0.22f && currentBotMinY >= gb.max.y - 0.14f)
+            float maxGroundVy = botHasSuperFeet ? 0.15f : 0.22f;
+            float topTolerance = botHasSuperFeet ? 0.08f : 0.14f;
+            if (botRb.linearVelocity.y <= maxGroundVy && currentBotMinY >= gb.max.y - topTolerance)
             {
                 standingOnTop = true;
             }
         }
 
-        // Üstteki bir platformun yan/köşe yüzeyiyle temas kontrolü:
+        // Üstteki bir platformun yan/köşe yüzeyiyle temas kontrolü (Kuş Ayağı aktifken alttan geçildiği için köşeye takılmaz):
         // YALNIZCA ayaklar platformun üst yüzeyine yetişemediğinde (currentBotMinY < sb.max.y - 0.03f) ve tepe noktasında (vy <= 0.20f) devreye girer!
-        if (botUngroundLockTimer <= 0f && !standingOnTop && botRb.linearVelocity.y <= 0.20f && botRb.linearVelocity.y >= -3.8f)
+        if (!botHasSuperFeet && botUngroundLockTimer <= 0f && !standingOnTop && botRb.linearVelocity.y <= 0.20f && botRb.linearVelocity.y >= -3.8f)
         {
             Collider2D sideHit = Physics2D.OverlapBox(
                 botCenterPos + new Vector2(0f, -0.04f),
@@ -2454,8 +2493,20 @@ public class MultiplayerManager : MonoBehaviour
         float botFeetY = botCollider.bounds.min.y;
         float fullWrapWidth = botWrapThreshold * 2f;
         float currentMoveSpeed = botMoveSpeed * Mathf.Sqrt(speedRatio);
-        float jumpImpulse = botJumpForce * Mathf.Sqrt(speedRatio);
+        float superFeetMult = botHasSuperFeet ? (gm != null ? gm.superFeetJumpMultiplier : 1.82f) : 1f;
+        float jumpImpulse = botJumpForce * Mathf.Sqrt(speedRatio) * superFeetMult;
         float gravityAccel = Mathf.Max(6f, Mathf.Abs(Physics2D.gravity.y) * botBaseGravityScale * speedRatio);
+
+        // Kuş Ayağı ile yükselirken yerel oyuncuyla birebir aynı parıltılı yıldız/rüzgar izini bırak
+        if (botHasSuperFeet && botSelfRocketTimer <= 0f && botRb.linearVelocity.y > 0.8f)
+        {
+            botSuperTrailTimer -= dt;
+            if (botSuperTrailTimer <= 0f)
+            {
+                botSuperTrailTimer = 0.055f;
+                JumpDustEffect.SpawnSuperJumpTrail(feetPos);
+            }
+        }
 
         if (botSelfRocketTimer > 0f)
         {
@@ -2580,29 +2631,32 @@ public class MultiplayerManager : MonoBehaviour
                     currentMoveSpeed,
                     jumpImpulse,
                     gravityAccel,
+                    botHasSuperFeet,
                     activeMeteors,
                     out float estFlightTime);
 
                 bool underImmediateMeteor = IsThreatenedByMeteor(botPos.x, botPos.y, activeMeteors, out float meteorThreatX);
-                bool calmWaitNearTop = botPos.y > 2.15f && !underImmediateMeteor;
+                bool calmWaitNearTop = botPos.y > (botHasSuperFeet ? 1.55f : 2.15f) && !underImmediateMeteor;
 
                 if (bestUpper != null && !calmWaitNearTop)
                 {
                     Collider2D upperCol = bestUpper.GetComponent<Collider2D>();
                     float upperTopY = upperCol != null ? upperCol.bounds.max.y : (bestUpper.transform.position.y + 0.14f);
-                    bool upperIsSolid = upperCol == null || !upperCol.usedByEffector;
+                    bool upperIsSolid = !botHasSuperFeet && (upperCol == null || !upperCol.usedByEffector);
 
                     float nearFutureUpperX = bestUpper.PredictXAfter(0.16f);
                     float landingUpperX = bestUpper.PredictXAfter(estFlightTime);
                     float horizDx = ComputeSmartHorizontalDelta(botPos.x, landingUpperX, fullWrapWidth);
 
-                    PlatformMovement blockingCeil = FindOverheadSolidBlocker(
-                        platforms,
-                        standingPlat,
-                        botPos.x,
-                        botPos.y,
-                        upperTopY,
-                        0.14f);
+                    PlatformMovement blockingCeil = botHasSuperFeet
+                        ? null
+                        : FindOverheadSolidBlocker(
+                            platforms,
+                            standingPlat,
+                            botPos.x,
+                            botPos.y,
+                            upperTopY,
+                            0.14f);
 
                     bool blockedOverhead = (upperIsSolid && Mathf.Abs(nearFutureUpperX - botPos.x) < 0.88f && (upperTopY - botFeetY) < 1.90f)
                                         || (blockingCeil != null);
@@ -2656,6 +2710,7 @@ public class MultiplayerManager : MonoBehaviour
                         // ÖNCE SAF DİKEY ZIPLA (ters yöne giden platformun yatay hızını miras alma; havada yön ver!)
                         ExecuteBotJump(
                             jumpImpulse * retryJumpMult,
+                            botHasSuperFeet,
                             feetPos,
                             botPos.y,
                             standingPlat,
@@ -2685,7 +2740,8 @@ public class MultiplayerManager : MonoBehaviour
                 else if (botRb.linearVelocity.y > 0.08f)
                 {
                     PlatformMovement airTarget = botLockedTargetPlat;
-                    if (airTarget == null || (airTarget.transform.position.y - botPos.y) < -0.25f || (airTarget.transform.position.y - botPos.y) > 2.15f)
+                    float maxAirTargetDy = botHasSuperFeet ? 4.10f : 2.15f;
+                    if (airTarget == null || (airTarget.transform.position.y - botPos.y) < -0.25f || (airTarget.transform.position.y - botPos.y) > maxAirTargetDy)
                     {
                         airTarget = SelectBestUpperPlatformForBot(
                             platforms,
@@ -2696,14 +2752,17 @@ public class MultiplayerManager : MonoBehaviour
                             currentMoveSpeed,
                             botRb.linearVelocity.y,
                             gravityAccel,
+                            botHasSuperFeet,
                             activeMeteors,
                             out _);
                         botLockedTargetPlat = airTarget;
                     }
 
-                    float remRiseTime = Mathf.Clamp(botRb.linearVelocity.y / gravityAccel, 0.06f, 0.45f);
+                    float remRiseTime = Mathf.Clamp(botRb.linearVelocity.y / gravityAccel, 0.06f, botHasSuperFeet ? 0.72f : 0.45f);
                     float airTargetTopY = airTarget != null ? GetPlatformTopY(airTarget) : (botPos.y + 1.1f);
-                    PlatformMovement airBlocker = FindOverheadSolidBlocker(platforms, null, botPos.x, botPos.y, airTargetTopY, 0.06f);
+                    PlatformMovement airBlocker = botHasSuperFeet
+                        ? null
+                        : FindOverheadSolidBlocker(platforms, null, botPos.x, botPos.y, airTargetTopY, 0.06f);
 
                     if (airTarget != null)
                     {
@@ -2711,7 +2770,7 @@ public class MultiplayerManager : MonoBehaviour
                         float platTopY = tCol != null ? tCol.bounds.max.y : (airTarget.transform.position.y + 0.14f);
                         float platBottomY = tCol != null ? tCol.bounds.min.y : (airTarget.transform.position.y - 0.14f);
                         float botTopY = botCollider.bounds.max.y;
-                        bool targetIsSolid = tCol == null || !tCol.usedByEffector;
+                        bool targetIsSolid = !botHasSuperFeet && (tCol == null || !tCol.usedByEffector);
 
                         float aimX = airTarget.PredictXAfter(remRiseTime + 0.08f);
 
@@ -2941,6 +3000,7 @@ public class MultiplayerManager : MonoBehaviour
 
     private void ExecuteBotJump(
         float jumpVelocityY,
+        bool isSuperJump,
         Vector2 feetPos,
         float currentBotY,
         PlatformMovement fromPlat,
@@ -2953,8 +3013,16 @@ public class MultiplayerManager : MonoBehaviour
         botAirTime = 0f;
         botUngroundLockTimer = 0.07f;
         botRb.linearVelocity = new Vector2(0f, jumpVelocityY);
-        botVisualStretch = new Vector2(0.80f, 1.24f);
-        JumpDustEffect.SpawnJumpDust(feetPos);
+        if (isSuperJump)
+        {
+            botVisualStretch = new Vector2(0.70f, 1.38f);
+            JumpDustEffect.SpawnSuperJumpBurst(feetPos);
+        }
+        else
+        {
+            botVisualStretch = new Vector2(0.80f, 1.24f);
+            JumpDustEffect.SpawnJumpDust(feetPos);
+        }
         botGrounded = false;
         botWasGrounded = false;
         botCoyoteTimer = 0f;
@@ -3008,16 +3076,18 @@ public class MultiplayerManager : MonoBehaviour
         float currentMoveSpeed,
         float upwardSpeed,
         float gravityAccel,
+        bool hasSuperFeet,
         SpaceMeteorProjectile[] activeMeteors,
         out float chosenFlightTime)
     {
-        chosenFlightTime = 0.48f;
+        chosenFlightTime = hasSuperFeet ? 0.62f : 0.48f;
         PlatformMovement best = null;
         float bestCost = 999f;
 
         float vRel = Mathf.Max(2.5f, upwardSpeed) + GameManager.globalPlatformSpeed;
         // Köşe tırmanışı (corner hop) payı dahil ulaşılabilir maksimum dikey kazanç
-        float maxReachableDy = ((vRel * vRel) / (2f * gravityAccel)) + 0.28f;
+        float maxReachableDy = ((vRel * vRel) / (2f * gravityAccel)) + (hasSuperFeet ? 0.05f : 0.28f);
+        float heightCap = hasSuperFeet ? 3.85f : 2.08f;
         // Aynı platformda 2+ kez takıldıysa yandaki/hafif alttaki alternatif kaçış platformlarına da izin ver!
         float minAllowedDy = (standingPlat != null && botSamePlatFailCount >= 2) ? -0.45f : 0.28f;
 
@@ -3028,10 +3098,12 @@ public class MultiplayerManager : MonoBehaviour
 
             float topY = GetPlatformTopY(p);
             float dyTop = topY - botFeetY;
-            if (dyTop < minAllowedDy || dyTop > Mathf.Min(2.08f, maxReachableDy))
+            if (dyTop < minAllowedDy || dyTop > Mathf.Min(heightCap, maxReachableDy))
                 continue;
 
-            float flightT = Mathf.Clamp(0.36f + Mathf.Max(0f, dyTop) * 0.13f, 0.32f, 0.64f);
+            float flightT = hasSuperFeet
+                ? Mathf.Clamp(0.40f + Mathf.Max(0f, dyTop) * 0.11f, 0.36f, 0.82f)
+                : Mathf.Clamp(0.36f + Mathf.Max(0f, dyTop) * 0.13f, 0.32f, 0.64f);
             float futureX = p.PredictXAfter(flightT);
             float horizDx = ComputeSmartHorizontalDelta(botPos.x, futureX, fullWrapWidth);
 
@@ -3039,13 +3111,13 @@ public class MultiplayerManager : MonoBehaviour
             float maxHoriz = currentMoveSpeed * flightT + 0.65f;
             float outOfRangePenalty = Mathf.Abs(horizDx) > maxHoriz ? (Mathf.Abs(horizDx) - maxHoriz) * 3.2f : 0f;
 
-            // Tavan engeli varsa ek maliyet (açık platform varsa onu tercih etsin, yoksa kavisle çıksın!)
-            bool directlyOverhead = Mathf.Abs(futureX - botPos.x) < 0.86f && dyTop > 0.15f && dyTop < 1.85f;
+            // Kuş Ayağı aktifken platformların içinden alttan geçildiği için tavan/ara basamak engeli yoktur!
+            bool directlyOverhead = !hasSuperFeet && Mathf.Abs(futureX - botPos.x) < 0.86f && dyTop > 0.15f && dyTop < 1.85f;
             float ceilingPenalty = directlyOverhead ? 0.60f : 0f;
 
             // Parabolik sıçrama yayının ortasında başka bir katı platform yolu tıkıyor mu? (Varsa önce o ara basamağı seçtir!)
             float pathBlockPenalty = 0f;
-            if (!directlyOverhead && dyTop > 0.55f)
+            if (!hasSuperFeet && !directlyOverhead && dyTop > 0.55f)
             {
                 for (int k = 0; k < platforms.Length; k++)
                 {
@@ -3096,8 +3168,10 @@ public class MultiplayerManager : MonoBehaviour
 
             float meteorPenalty = IsThreatenedByMeteor(futureX, topY, activeMeteors) ? 2.8f : 0f;
 
-            // İdeal tırmanma adımı (~1.35-1.55 birim) en verimli ve doğal görünen adımdır
-            float cost = Mathf.Abs(dyTop - 1.38f) * 1.10f
+            // Kuş Ayağı varken 2 platform birden (~2.72 birim), normalde 1 platform (~1.38 birim) ideal adımdır
+            float idealStepDy = hasSuperFeet ? 2.72f : 1.38f;
+            float dyWeight = hasSuperFeet ? 0.85f : 1.10f;
+            float cost = Mathf.Abs(dyTop - idealStepDy) * dyWeight
                        + Mathf.Abs(horizDx) * 0.42f
                        + ceilingPenalty
                        + pathBlockPenalty
@@ -3448,7 +3522,7 @@ public class MultiplayerManager : MonoBehaviour
         // Platformun sağ veya sol yanındaysa rakibin kendi karakterine özel tırmanma/tutunma görüntüsünü göster
         bool inCornerPose = false;
         bool onRightSide = false;
-        if (opponentCornerFrames != null && opponentCornerFrames.Length > 0 && opponentSpriteRenderer != null && botSelfRocketTimer <= 0f)
+        if (opponentCornerFrames != null && opponentCornerFrames.Length > 0 && opponentSpriteRenderer != null && botSelfRocketTimer <= 0f && !OpponentSuperFeet)
         {
             Vector3 opPos = opponentAvatarObj.transform.position;
             Collider2D nearPlat = Physics2D.OverlapBox(
