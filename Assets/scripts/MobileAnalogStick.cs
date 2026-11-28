@@ -41,13 +41,13 @@ public class MobileAnalogStick : MonoBehaviour, IPointerDownHandler, IDragHandle
             rootObj.transform.SetSiblingIndex(desiredSiblingIndex);
         }
 
-        // Parmağın rahatça yakalaması için geniş görünmez dokunma alanı (alt ortada)
+        // Parmağın rahatça yakalaması için geniş görünmez dokunma alanı (sol altta başparmak hizasında)
         RectTransform rootRt = rootObj.GetComponent<RectTransform>();
-        rootRt.anchorMin = new Vector2(0.5f, 0f);
-        rootRt.anchorMax = new Vector2(0.5f, 0f);
+        rootRt.anchorMin = new Vector2(0f, 0f);
+        rootRt.anchorMax = new Vector2(0f, 0f);
         rootRt.pivot = new Vector2(0.5f, 0.5f);
-        rootRt.anchoredPosition = new Vector2(0f, 84f);
-        rootRt.sizeDelta = new Vector2(196f, 164f);
+        rootRt.anchoredPosition = new Vector2(90f, 84f);
+        rootRt.sizeDelta = new Vector2(180f, 164f);
 
         Image hitImg = rootObj.GetComponent<Image>();
         hitImg.color = new Color(0f, 0f, 0f, 0f);
