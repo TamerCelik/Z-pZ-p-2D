@@ -14,6 +14,11 @@ public class HealthPickup : MonoBehaviour
     private Vector3 baseScale;
     private bool isCollected = false;
 
+    /// <summary>
+    /// Düello modunda iki oyuncu arasında ortak olan deterministik item kimliği (-1: tek oyunculu).
+    /// </summary>
+    public int DuelItemId { get; set; } = -1;
+
     void Start()
     {
         startLocalY = transform.localPosition.y;
@@ -39,6 +44,11 @@ public class HealthPickup : MonoBehaviour
         {
             isCollected = true;
 
+            if (DuelItemId >= 0 && MultiplayerManager.IsDuelActive && MultiplayerManager.Instance != null)
+            {
+                MultiplayerManager.Instance.NotifyLocalItemCollected(DuelItemId);
+            }
+
             GameManager gm = Object.FindFirstObjectByType<GameManager>();
             if (gm != null)
             {
@@ -47,5 +57,16 @@ public class HealthPickup : MonoBehaviour
 
             Destroy(gameObject);
         }
+    }
+
+    /// <summary>
+    /// Düello modunda rakip bu canı aldığında yerel oyuncuya can eklemeden sahneden kaldırır.
+    /// </summary>
+    public void ConsumeRemotely()
+    {
+        if (isCollected) return;
+        isCollected = true;
+        JumpDustEffect.SpawnJumpDust(transform.position);
+        Destroy(gameObject);
     }
 }

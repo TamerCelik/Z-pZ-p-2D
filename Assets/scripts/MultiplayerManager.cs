@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Net.WebSockets;
 using System.Text;
 using System.Threading;
@@ -51,6 +52,7 @@ public class MultiplayerManager : MonoBehaviour
         public string nm;
         public string ch;
         public int sd;
+        public int[] ci;
     }
 
     [Serializable]
@@ -171,6 +173,8 @@ public class MultiplayerManager : MonoBehaviour
     private float botMistakeTimer;
     private float botMistakeOffset;
     private float botSelfRocketTimer;
+    private float botShieldTimer;
+    private float botSuperFeetTimer;
     private Rigidbody2D botRb;
     private BoxCollider2D botCollider;
     private Transform botFeetTransform;
@@ -203,7 +207,16 @@ public class MultiplayerManager : MonoBehaviour
     // Rakip karakter objesi ve Gerçek Zamanlı WebSocket + Sıfır-Işınlanma Senkronizasyonu
     private GameObject opponentAvatarObj;
     private SpriteRenderer opponentSpriteRenderer;
+    private Transform opponentOverheadRoot;
     private TextMeshPro opponentNameTagTmp;
+    private TextMeshPro opponentNameShadowTmp;
+    private TextMeshPro opponentHealthNumTmp;
+    private TextMeshPro opponentHealthShadowTmp;
+    private GameObject opponentShieldAuraObj;
+    private SpriteRenderer opponentShieldAuraRenderer;
+    private GameObject opponentSuperFeetObj;
+    private SpriteRenderer opponentSuperFeetRenderer;
+    private static Sprite cachedPixelHeartSprite;
     private Sprite[] opponentIdleFrames;
     private Sprite[] opponentCornerFrames;
     private float opponentAnimTimer;
@@ -239,6 +252,12 @@ public class MultiplayerManager : MonoBehaviour
     private bool prevLocalGroundedForNet = true;
     private bool pendingLocalJumpNet = false;
     private bool pendingWsRocketTrigger = false;
+
+    // İki oyuncu arası ortak deterministik item senkronizasyonu (bir oyuncu alınca diğerinden anında silinir)
+    private readonly HashSet<int> collectedDuelItemIds = new HashSet<int>();
+    private readonly Dictionary<int, GameObject> activeDuelItems = new Dictionary<int, GameObject>();
+    private readonly List<int> recentLocalCollectedItems = new List<int>();
+    private readonly List<int> botItemPickupBuffer = new List<int>();
 
     // Menü UI
     private TMP_FontAsset arcadeFont;
@@ -332,6 +351,9 @@ public class MultiplayerManager : MonoBehaviour
                 inActiveDuel = false;
                 localEliminated = false;
                 duelFinished = false;
+                collectedDuelItemIds.Clear();
+                activeDuelItems.Clear();
+                recentLocalCollectedItems.Clear();
             }
             SetupSceneUI(scene.name);
         }
@@ -421,6 +443,212 @@ public class MultiplayerManager : MonoBehaviour
         pendingLocalRocketTrigger = true;
         pendingWsRocketTrigger = true;
         if (!IsBotMatch) SendGameplayWsBroadcast();
+    }
+
+    public bool IsDuelItemCollected(int itemId)
+    {
+        return itemId >= 0 && collectedDuelItemIds.Contains(itemId);
+    }
+
+    public void RegisterDuelItem(int itemId, GameObject itemObj)
+    {
+        if (itemId < 0 || itemObj == null) return;
+        if (collectedDuelItemIds.Contains(itemId))
+        {
+            Destroy(itemObj);
+            return;
+        }
+        activeDuelItems[itemId] = itemObj;
+    }
+
+    public void NotifyLocalItemCollected(int itemId)
+    {
+        if (!inActiveDuel || itemId < 0) return;
+
+        collectedDuelItemIds.Add(itemId);
+        activeDuelItems.Remove(itemId);
+
+        if (!recentLocalCollectedItems.Contains(itemId))
+        {
+            recentLocalCollectedItems.Add(itemId);
+            if (recentLocalCollectedItems.Count > 16)
+            {
+                recentLocalCollectedItems.RemoveAt(0);
+            }
+        }
+
+        if (!IsBotMatch)
+        {
+            SendGameplayWsBroadcast();
+        }
+    }
+
+    private void MarkDuelItemCollectedRemotely(int itemId)
+    {
+        if (itemId < 0 || !collectedDuelItemIds.Add(itemId)) return;
+
+        if (activeDuelItems.TryGetValue(itemId, out GameObject itemObj))
+        {
+            activeDuelItems.Remove(itemId);
+            if (itemObj != null)
+            {
+                CoinPickup coin = itemObj.GetComponent<CoinPickup>();
+                if (coin != null)
+                {
+                    coin.ConsumeRemotely();
+                    return;
+                }
+
+                PowerUpPickup pu = itemObj.GetComponent<PowerUpPickup>();
+                if (pu != null)
+                {
+                    pu.ConsumeRemotely();
+                    return;
+                }
+
+                HealthPickup hp = itemObj.GetComponent<HealthPickup>();
+                if (hp != null)
+                {
+                    hp.ConsumeRemotely();
+                    return;
+                }
+
+                Destroy(itemObj);
+            }
+        }
+    }
+
+    private void CheckBotSharedItemPickups(Vector3 botPos, bool localOnRocket)
+    {
+        if (!IsBotMatch || activeDuelItems.Count == 0) return;
+
+        botItemPickupBuffer.Clear();
+        foreach (KeyValuePair<int, GameObject> kv in activeDuelItems)
+        {
+            if (kv.Value == null)
+            {
+                botItemPickupBuffer.Add(kv.Key);
+                continue;
+            }
+
+            Vector3 diff = kv.Value.transform.position - botPos;
+            if ((diff.x * diff.x + diff.y * diff.y) <= 0.30f)
+            {
+                PowerUpPickup pu = kv.Value.GetComponent<PowerUpPickup>();
+                if (pu != null)
+                {
+                    if (pu.powerUpType == PowerUpType.Rocket)
+                    {
+                        botSelfRocketTimer = Mathf.Max(botSelfRocketTimer, 3.0f);
+                        if (!localOnRocket)
+                        {
+                            opponentRocketTimer = Mathf.Max(opponentRocketTimer, 3.0f);
+                        }
+                    }
+                    else if (pu.powerUpType == PowerUpType.Shield)
+                    {
+                        OpponentShield = true;
+                        botShieldTimer = 12f;
+                    }
+                    else if (pu.powerUpType == PowerUpType.SuperFeet)
+                    {
+                        OpponentSuperFeet = true;
+                        botSuperFeetTimer = 12f;
+                    }
+                }
+                else if (kv.Value.GetComponent<HealthPickup>() != null)
+                {
+                    OpponentHealth = Mathf.Min(5, OpponentHealth + 1);
+                }
+
+                botItemPickupBuffer.Add(kv.Key);
+            }
+        }
+
+        for (int i = 0; i < botItemPickupBuffer.Count; i++)
+        {
+            int id = botItemPickupBuffer[i];
+            if (activeDuelItems.TryGetValue(id, out GameObject go) && go == null)
+            {
+                activeDuelItems.Remove(id);
+            }
+            else
+            {
+                MarkDuelItemCollectedRemotely(id);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Uzay evresindeki düşen meteorların karşı oyuncuya (veya bota) çarpmasını yönetir.
+    /// Kalkan varsa kalkan meteoru emer; yoksa bot 1 can kaybeder ve meteor parçalanır.
+    /// </summary>
+    public void CheckMeteorHitOpponent(SpaceMeteorProjectile meteor)
+    {
+        if (!inActiveDuel || !OpponentAlive || opponentAvatarObj == null || meteor == null) return;
+
+        Vector3 diff = meteor.transform.position - opponentAvatarObj.transform.position;
+        if (Mathf.Abs(diff.x) > 0.36f || Mathf.Abs(diff.y) > 0.38f) return;
+
+        if (!meteor.TryConsumeHit()) return;
+
+        if (!IsBotMatch)
+        {
+            // Online insan maçında hasar ve kalkan tüketimi karşı cihazda hesaplanıp WebSocket ile senkronlanır; burada görsel patlama yeterlidir.
+            return;
+        }
+
+        if (botSelfRocketTimer > 0f)
+        {
+            return;
+        }
+
+        if (OpponentShield)
+        {
+            OpponentShield = false;
+            botShieldTimer = 0f;
+            return;
+        }
+
+        OpponentHealth = Mathf.Max(0, OpponentHealth - 1);
+        botLockedTargetPlat = null;
+        botHookSideSign = 0f;
+
+        if (OpponentHealth <= 0)
+        {
+            OpponentAlive = false;
+            UpdateBotRocketFlame(false);
+            return;
+        }
+
+        // Meteor darbesi alan botu üstteki güvenli bir platformda yeniden doğur
+        PlatformMovement[] platforms = FindObjectsByType<PlatformMovement>(FindObjectsSortMode.None);
+        PlatformMovement respawnPlat = null;
+        float highestY = -999f;
+        for (int i = 0; i < platforms.Length; i++)
+        {
+            if (platforms[i] == null) continue;
+            float py = platforms[i].transform.position.y;
+            if (py > highestY && py < 3.6f)
+            {
+                highestY = py;
+                respawnPlat = platforms[i];
+            }
+        }
+
+        Vector3 respawnPos = respawnPlat != null
+            ? new Vector3(respawnPlat.transform.position.x, GetPlatformTopY(respawnPlat) + 0.28f, 0f)
+            : new Vector3(0f, 1.8f, 0f);
+
+        opponentAvatarObj.transform.position = respawnPos;
+        if (botRb != null)
+        {
+            botRb.position = respawnPos;
+            botRb.linearVelocity = new Vector2(0f, -GameManager.globalPlatformSpeed);
+        }
+        botJumpCooldown = 0.14f;
+        botVisualStretch = new Vector2(1.15f, 0.88f);
+        JumpDustEffect.SpawnSuperJumpBurst(respawnPos);
     }
 
     public void OnLocalPlayerEliminated(int finalLocalScore)
@@ -985,6 +1213,9 @@ public class MultiplayerManager : MonoBehaviour
         remoteLastSeq = 0;
         localBroadcastSeq = 0;
         wsBroadcastTimer = 0f;
+        collectedDuelItemIds.Clear();
+        activeDuelItems.Clear();
+        recentLocalCollectedItems.Clear();
 
         if (!IsBotMatch && !string.IsNullOrEmpty(CurrentRoomCode))
         {
@@ -994,6 +1225,10 @@ public class MultiplayerManager : MonoBehaviour
         botSimTime = 0f;
         botExactScore = 0f;
         botSelfRocketTimer = 0f;
+        botShieldTimer = 0f;
+        botSuperFeetTimer = 0f;
+        OpponentShield = false;
+        OpponentSuperFeet = false;
         botMistakeTimer = 0f;
         botMistakeOffset = 0f;
         botCurrentMoveInput = 0f;
@@ -1043,6 +1278,10 @@ public class MultiplayerManager : MonoBehaviour
         botFeetTransform = null;
         botRocketFlameObj = null;
         botRocketFlameRenderer = null;
+        opponentShieldAuraObj = null;
+        opponentShieldAuraRenderer = null;
+        opponentSuperFeetObj = null;
+        opponentSuperFeetRenderer = null;
         botPlacedOnStartPlatform = false;
 
         GameManager gm = GameManager.Instance != null ? GameManager.Instance : FindFirstObjectByType<GameManager>();
@@ -1133,19 +1372,143 @@ public class MultiplayerManager : MonoBehaviour
             botFeetTransform = feetObj.transform;
         }
 
-        // Tepesindeki "Rakip Adı + CAN: 3" Etiketi
-        GameObject tagObj = new GameObject("OpponentNameTag");
-        tagObj.transform.SetParent(opponentAvatarObj.transform, false);
-        tagObj.transform.localPosition = new Vector3(0f, 0.28f, 0f);
-        tagObj.transform.localScale = new Vector3(0.08f, 0.10f, 1f);
+        // Tepesindeki Piksel İsim (Sarı-Turuncu Degrade) + Altında Kırmızı Piksel Kalp ve Can Sayısı
+        GameObject overheadRootObj = new GameObject("OpponentOverheadRoot");
+        overheadRootObj.transform.SetParent(opponentAvatarObj.transform, false);
+        overheadRootObj.transform.localPosition = new Vector3(0f, 0.25f, 0f);
+        opponentOverheadRoot = overheadRootObj.transform;
 
-        opponentNameTagTmp = tagObj.AddComponent<TextMeshPro>();
+        string upperName = string.IsNullOrEmpty(OpponentName) ? "RAKİP" : OpponentName.ToUpperInvariant();
+
+        // 1) Üst Satır: Rakip İsmi (Sarı-Krem -> Turuncu Degrade + Koyu Piksel Gölge, kompakt boyut)
+        GameObject nameObj = new GameObject("OpponentNameTag");
+        nameObj.transform.SetParent(opponentOverheadRoot, false);
+        nameObj.transform.localPosition = new Vector3(0f, 0.34f, 0f);
+        nameObj.transform.localScale = new Vector3(0.080f, 0.080f, 1f);
+
+        opponentNameTagTmp = nameObj.AddComponent<TextMeshPro>();
         if (arcadeFont != null) opponentNameTagTmp.font = arcadeFont;
-        opponentNameTagTmp.fontSize = 24f;
+        if (arcadeFontMaterial != null) opponentNameTagTmp.fontSharedMaterial = arcadeFontMaterial;
+        opponentNameTagTmp.fontSize = 26f;
+        opponentNameTagTmp.fontStyle = FontStyles.Bold;
         opponentNameTagTmp.alignment = TextAlignmentOptions.Center;
-        opponentNameTagTmp.color = new Color(1f, 0.94f, 0.42f, 1f);
-        opponentNameTagTmp.sortingOrder = 25;
-        opponentNameTagTmp.text = $"{OpponentName}\nCAN: 3";
+        opponentNameTagTmp.textWrappingMode = TextWrappingModes.NoWrap;
+        opponentNameTagTmp.color = Color.white;
+        opponentNameTagTmp.enableVertexGradient = true;
+        opponentNameTagTmp.colorGradient = new VertexGradient(
+            new Color(1.00f, 0.96f, 0.72f, 1f),
+            new Color(1.00f, 0.96f, 0.72f, 1f),
+            new Color(1.00f, 0.65f, 0.30f, 1f),
+            new Color(1.00f, 0.65f, 0.30f, 1f));
+        opponentNameTagTmp.sortingOrder = 26;
+        opponentNameTagTmp.text = upperName;
+
+        GameObject nameShadowObj = new GameObject("OpponentNameShadow");
+        nameShadowObj.transform.SetParent(nameObj.transform, false);
+        nameShadowObj.transform.localPosition = new Vector3(0.14f, -0.16f, 0.02f);
+        nameShadowObj.transform.localScale = Vector3.one;
+        opponentNameShadowTmp = nameShadowObj.AddComponent<TextMeshPro>();
+        if (arcadeFont != null) opponentNameShadowTmp.font = arcadeFont;
+        if (arcadeFontMaterial != null) opponentNameShadowTmp.fontSharedMaterial = arcadeFontMaterial;
+        opponentNameShadowTmp.fontSize = 26f;
+        opponentNameShadowTmp.fontStyle = FontStyles.Bold;
+        opponentNameShadowTmp.alignment = TextAlignmentOptions.Center;
+        opponentNameShadowTmp.textWrappingMode = TextWrappingModes.NoWrap;
+        opponentNameShadowTmp.color = new Color(0.22f, 0.11f, 0.17f, 0.95f);
+        opponentNameShadowTmp.sortingOrder = 25;
+        opponentNameShadowTmp.text = upperName;
+
+        // 2) Alt Satır: Piksel Kırmızı Kalp İkonu + Beyaz Can Sayısı (Örn: ❤ 3)
+        GameObject heartObj = new GameObject("OpponentHeartIcon");
+        heartObj.transform.SetParent(opponentOverheadRoot, false);
+        heartObj.transform.localPosition = new Vector3(-0.095f, 0.125f, 0f);
+        heartObj.transform.localScale = new Vector3(0.56f, 0.56f, 1f);
+        SpriteRenderer heartSr = heartObj.AddComponent<SpriteRenderer>();
+        heartSr.sprite = GetPixelHeartSprite();
+        heartSr.sortingOrder = 26;
+
+        GameObject hpNumObj = new GameObject("OpponentHealthNum");
+        hpNumObj.transform.SetParent(opponentOverheadRoot, false);
+        hpNumObj.transform.localPosition = new Vector3(0.072f, 0.13f, 0f);
+        hpNumObj.transform.localScale = new Vector3(0.082f, 0.082f, 1f);
+
+        opponentHealthNumTmp = hpNumObj.AddComponent<TextMeshPro>();
+        if (arcadeFont != null) opponentHealthNumTmp.font = arcadeFont;
+        if (arcadeFontMaterial != null) opponentHealthNumTmp.fontSharedMaterial = arcadeFontMaterial;
+        opponentHealthNumTmp.fontSize = 24f;
+        opponentHealthNumTmp.fontStyle = FontStyles.Bold;
+        opponentHealthNumTmp.alignment = TextAlignmentOptions.Center;
+        opponentHealthNumTmp.textWrappingMode = TextWrappingModes.NoWrap;
+        opponentHealthNumTmp.color = Color.white;
+        opponentHealthNumTmp.sortingOrder = 26;
+        opponentHealthNumTmp.text = OpponentHealth.ToString();
+
+        GameObject hpShadowObj = new GameObject("OpponentHealthShadow");
+        hpShadowObj.transform.SetParent(hpNumObj.transform, false);
+        hpShadowObj.transform.localPosition = new Vector3(0.14f, -0.16f, 0.02f);
+        hpShadowObj.transform.localScale = Vector3.one;
+        opponentHealthShadowTmp = hpShadowObj.AddComponent<TextMeshPro>();
+        if (arcadeFont != null) opponentHealthShadowTmp.font = arcadeFont;
+        if (arcadeFontMaterial != null) opponentHealthShadowTmp.fontSharedMaterial = arcadeFontMaterial;
+        opponentHealthShadowTmp.fontSize = 24f;
+        opponentHealthShadowTmp.fontStyle = FontStyles.Bold;
+        opponentHealthShadowTmp.alignment = TextAlignmentOptions.Center;
+        opponentHealthShadowTmp.textWrappingMode = TextWrappingModes.NoWrap;
+        opponentHealthShadowTmp.color = new Color(0.20f, 0.10f, 0.16f, 0.95f);
+        opponentHealthShadowTmp.sortingOrder = 25;
+        opponentHealthShadowTmp.text = OpponentHealth.ToString();
+    }
+
+    private static Sprite GetPixelHeartSprite()
+    {
+        if (cachedPixelHeartSprite != null) return cachedPixelHeartSprite;
+
+        // 13x12 piksel sanat kalp (örnek görseldeki koyu çerçeveli kırmızı piksel kalp + sol üst parlama)
+        string[] rows = new string[]
+        {
+            "..BBB...BBB..",
+            ".BRRRB.BRRRB.",
+            "BRWWWRBRRRRRB",
+            "BRWRRRRRRRRRB",
+            "BRRRRRRRRRRRB",
+            "BRRRRRRRRRRSB",
+            ".BRRRRRRRRSB.",
+            "..BRRRRRRSB..",
+            "...BRRRRSB...",
+            "....BRRSB....",
+            ".....BSB.....",
+            "......B......"
+        };
+
+        int h = rows.Length;
+        int w = rows[0].Length;
+        Texture2D tex = new Texture2D(w, h, TextureFormat.RGBA32, false) { filterMode = FilterMode.Point };
+        Color[] cols = new Color[w * h];
+
+        Color cBorder = new Color(0.15f, 0.07f, 0.11f, 1f);
+        Color cRed    = new Color(0.94f, 0.18f, 0.24f, 1f);
+        Color cShade  = new Color(0.72f, 0.10f, 0.18f, 1f);
+        Color cShine  = new Color(1.00f, 0.96f, 0.96f, 1f);
+
+        for (int y = 0; y < h; y++)
+        {
+            string row = rows[h - 1 - y];
+            for (int x = 0; x < w; x++)
+            {
+                char ch = row[x];
+                Color px = Color.clear;
+                if (ch == 'B') px = cBorder;
+                else if (ch == 'R') px = cRed;
+                else if (ch == 'S') px = cShade;
+                else if (ch == 'W') px = cShine;
+                cols[y * w + x] = px;
+            }
+        }
+
+        tex.SetPixels(cols);
+        tex.Apply();
+        cachedPixelHeartSprite = Sprite.Create(tex, new Rect(0, 0, w, h), new Vector2(0.5f, 0.5f), 32f);
+        return cachedPixelHeartSprite;
     }
 
     private void LoadOpponentCornerSprites(string charId)
@@ -1443,7 +1806,8 @@ public class MultiplayerManager : MonoBehaviour
             jmp = jumpedNow,
             nm = LeaderboardService.EnsureInstance().CurrentUsername,
             ch = CharacterShopData.GetSelectedCharacterId(),
-            sd = SharedSeed
+            sd = SharedSeed,
+            ci = recentLocalCollectedItems.Count > 0 ? recentLocalCollectedItems.ToArray() : null
         };
 
         string topic = "realtime:duel_" + CurrentRoomCode;
@@ -1500,6 +1864,14 @@ public class MultiplayerManager : MonoBehaviour
             if (d.seq > 0 && d.seq <= remoteLastSeq) continue;
             remoteLastSeq = d.seq;
             lastWsPacketReceivedTime = Time.unscaledTime;
+
+            if (d.ci != null && d.ci.Length > 0)
+            {
+                for (int i = 0; i < d.ci.Length; i++)
+                {
+                    MarkDuelItemCollectedRemotely(d.ci[i]);
+                }
+            }
 
             ApplyIncomingRemoteState(
                 d.nm,
@@ -1751,6 +2123,25 @@ public class MultiplayerManager : MonoBehaviour
         if (botCornerHopCooldown > 0f) botCornerHopCooldown -= dt;
         if (botUngroundLockTimer > 0f) botUngroundLockTimer -= dt;
 
+        if (botShieldTimer > 0f)
+        {
+            botShieldTimer -= dt;
+            if (botShieldTimer <= 0f)
+            {
+                botShieldTimer = 0f;
+                OpponentShield = false;
+            }
+        }
+        if (botSuperFeetTimer > 0f)
+        {
+            botSuperFeetTimer -= dt;
+            if (botSuperFeetTimer <= 0f)
+            {
+                botSuperFeetTimer = 0f;
+                OpponentSuperFeet = false;
+            }
+        }
+
         GameManager gm = GameManager.Instance;
         bool localOnRocket = gm != null && gm.IsRocketBoosting;
         float scoreRate = (botSelfRocketTimer > 0f || localOnRocket) ? 16f : 10f;
@@ -1760,18 +2151,7 @@ public class MultiplayerManager : MonoBehaviour
         float speedRatio = (GameManager.globalPlatformSpeed > 0f) ? (GameManager.globalPlatformSpeed / 1.7f) : 1f;
         speedRatio = Mathf.Clamp(speedRatio, 1f, 1.41f);
 
-        // Roket zamanı geldiyse bot gerçekten roketle uçar ve rakibe sabotaj uygular
-        if (botSimTime >= botNextRocketTime)
-        {
-            botNextRocketTime = botSimTime + UnityEngine.Random.Range(19f, 28f);
-            botSelfRocketTimer = 3.0f;
-            botLockedTargetPlat = null;
-            botHookSideSign = 0f;
-            if (!localOnRocket)
-            {
-                opponentRocketTimer = 3.0f;
-            }
-        }
+        // Bot yalnızca sahnedeki gerçek bir Roket itemini topladığında (CheckBotSharedItemPickups) roketle uçar!
 
         // Uzay evresindeki düşen meteorları algıla (kaçınma ve güvenli platform seçimi için)
         SpaceMeteorProjectile[] activeMeteors = FindObjectsByType<SpaceMeteorProjectile>(FindObjectsSortMode.None);
@@ -2290,18 +2670,26 @@ public class MultiplayerManager : MonoBehaviour
             opponentFacing = botCurrentMoveInput > 0f ? 1f : -1f;
         }
 
-        // Gerçek düşüş kontrolü: ekran alt sınırını geçtiğinde 1 can kaybeder ve üstteki güvenli bir platformda doğar
+        // Gerçek düşüş kontrolü: ekran alt sınırını geçtiğinde kalkan varsa kalkan kurtarır, yoksa 1 can kaybeder
         float botDeathY = camBottomY - 0.45f;
         if (afterPos.y < botDeathY)
         {
-            OpponentHealth = Mathf.Max(0, OpponentHealth - 1);
             botLockedTargetPlat = null;
             botHookSideSign = 0f;
-            if (OpponentHealth <= 0)
+            if (OpponentShield)
             {
-                OpponentAlive = false;
-                UpdateBotRocketFlame(false);
-                return;
+                OpponentShield = false;
+                botShieldTimer = 0f;
+            }
+            else
+            {
+                OpponentHealth = Mathf.Max(0, OpponentHealth - 1);
+                if (OpponentHealth <= 0)
+                {
+                    OpponentAlive = false;
+                    UpdateBotRocketFlame(false);
+                    return;
+                }
             }
 
             // Mevcut en yüksek güvenli platformun üstünde yeniden doğ
@@ -2332,6 +2720,7 @@ public class MultiplayerManager : MonoBehaviour
 
         OpponentTargetPos = opponentAvatarObj.transform.position;
         OpponentVy = botRb.linearVelocity.y;
+        CheckBotSharedItemPickups(afterPos, localOnRocket);
     }
 
     private void ExecuteBotJump(
@@ -2820,12 +3209,25 @@ public class MultiplayerManager : MonoBehaviour
         float sy = Mathf.Max(0.5f, botVisualStretch.y);
         opponentAvatarObj.transform.localScale = new Vector3(opponentFacing * 1.805f * sx, 1.422f * sy, 1f);
 
-        if (opponentNameTagTmp != null)
+        if (opponentOverheadRoot != null)
         {
-            // Karakter esnerken isim etiketi sabit boyutta ve düz okunur kalsın
-            opponentNameTagTmp.transform.localScale = new Vector3((opponentFacing * 0.08f) / sx, 0.10f / sy, 1f);
-            opponentNameTagTmp.text = $"{OpponentName}\nCAN: {OpponentHealth}";
+            // Karakter yön değiştirip esnerken üstteki piksel isim + kalp-can rozeti 1:1 sabit ve düz okunur kalsın
+            opponentOverheadRoot.localScale = new Vector3((opponentFacing / 1.805f) / sx, (1f / 1.422f) / sy, 1f);
+
+            string upperName = string.IsNullOrEmpty(OpponentName) ? "RAKİP" : OpponentName.ToUpperInvariant();
+            string hpStr = OpponentHealth.ToString();
+
+            if (opponentNameTagTmp != null && opponentNameTagTmp.text != upperName)
+                opponentNameTagTmp.text = upperName;
+            if (opponentNameShadowTmp != null && opponentNameShadowTmp.text != upperName)
+                opponentNameShadowTmp.text = upperName;
+            if (opponentHealthNumTmp != null && opponentHealthNumTmp.text != hpStr)
+                opponentHealthNumTmp.text = hpStr;
+            if (opponentHealthShadowTmp != null && opponentHealthShadowTmp.text != hpStr)
+                opponentHealthShadowTmp.text = hpStr;
         }
+
+        UpdateOpponentPowerUpVisuals();
 
         // Platformun sağ veya sol yanındaysa rakibin kendi karakterine özel tırmanma/tutunma görüntüsünü göster
         bool inCornerPose = false;
@@ -2878,6 +3280,69 @@ public class MultiplayerManager : MonoBehaviour
                 opponentAnimFrame = Mathf.FloorToInt(opponentAnimTimer) % opponentIdleFrames.Length;
                 opponentSpriteRenderer.sprite = opponentIdleFrames[opponentAnimFrame];
             }
+        }
+    }
+
+    private void UpdateOpponentPowerUpVisuals()
+    {
+        if (opponentAvatarObj == null) return;
+
+        // 1. Koruyucu Kalkan Baloncuğu (hem Online Rakip hem Bot için görünür!)
+        if (OpponentShield)
+        {
+            if (opponentShieldAuraObj == null)
+            {
+                opponentShieldAuraObj = new GameObject("OpponentShieldBubbleAura");
+                opponentShieldAuraObj.transform.SetParent(opponentAvatarObj.transform, false);
+                opponentShieldAuraObj.transform.localPosition = Vector3.zero;
+                opponentShieldAuraRenderer = opponentShieldAuraObj.AddComponent<SpriteRenderer>();
+                opponentShieldAuraRenderer.sprite = PowerUpPickup.GetShieldAuraSprite();
+                opponentShieldAuraRenderer.sortingOrder = 10;
+            }
+            if (!opponentShieldAuraObj.activeSelf) opponentShieldAuraObj.SetActive(true);
+            float pulse = 1f + Mathf.Sin(Time.time * 4.5f) * 0.05f;
+            opponentShieldAuraObj.transform.localScale = new Vector3(0.30f * pulse, 0.38f * pulse, 1f);
+
+            if (opponentShieldAuraRenderer != null)
+            {
+                float alpha = (IsBotMatch && botShieldTimer > 0f && botShieldTimer <= 3f)
+                    ? (0.25f + 0.75f * Mathf.Abs(Mathf.Sin(Time.time * 16f)))
+                    : (0.85f + 0.15f * Mathf.Sin(Time.time * 6f));
+                opponentShieldAuraRenderer.color = new Color(1f, 1f, 1f, alpha);
+            }
+        }
+        else if (opponentShieldAuraObj != null && opponentShieldAuraObj.activeSelf)
+        {
+            opponentShieldAuraObj.SetActive(false);
+        }
+
+        // 2. Kuş Ayağı Görseli (hem Online Rakip hem Bot için görünür!)
+        if (OpponentSuperFeet)
+        {
+            if (opponentSuperFeetObj == null)
+            {
+                opponentSuperFeetObj = new GameObject("OpponentSuperFeetVisual");
+                opponentSuperFeetObj.transform.SetParent(opponentAvatarObj.transform, false);
+                opponentSuperFeetObj.transform.localPosition = new Vector3(0f, -0.155f, 0f);
+                opponentSuperFeetObj.transform.localScale = new Vector3(0.62f / 1.805f, 0.62f / 1.422f, 1f);
+                opponentSuperFeetRenderer = opponentSuperFeetObj.AddComponent<SpriteRenderer>();
+                opponentSuperFeetRenderer.sprite = PowerUpPickup.GetSuperFeetSprite();
+                opponentSuperFeetRenderer.sortingOrder = 9;
+            }
+            if (!opponentSuperFeetObj.activeSelf) opponentSuperFeetObj.SetActive(true);
+            float waddle = Mathf.Sin(Time.time * 12f) * 6f;
+            opponentSuperFeetObj.transform.localRotation = Quaternion.Euler(0f, 0f, waddle);
+            if (opponentSuperFeetRenderer != null)
+            {
+                float alpha = (IsBotMatch && botSuperFeetTimer > 0f && botSuperFeetTimer <= 3f)
+                    ? (0.28f + 0.72f * Mathf.Abs(Mathf.Sin(Time.time * 16f)))
+                    : 1f;
+                opponentSuperFeetRenderer.color = new Color(1f, 1f, 1f, alpha);
+            }
+        }
+        else if (opponentSuperFeetObj != null && opponentSuperFeetObj.activeSelf)
+        {
+            opponentSuperFeetObj.SetActive(false);
         }
     }
 

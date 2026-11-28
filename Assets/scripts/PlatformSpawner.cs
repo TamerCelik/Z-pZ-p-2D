@@ -63,7 +63,22 @@ public class PlatformSpawner : MonoBehaviour
     private int consecutiveSameSideCount = 0;
     private float lastDirection = 0f;
     private System.Random duelLayoutRng;
+    private System.Random duelItemRng;
     private int spawnedPlatformCounter = 0;
+
+    private float NextItemValue()
+    {
+        if (MultiplayerManager.IsDuelActive && duelItemRng != null)
+            return (float)duelItemRng.NextDouble();
+        return Random.value;
+    }
+
+    private float NextItemRange(float min, float max)
+    {
+        if (MultiplayerManager.IsDuelActive && duelItemRng != null)
+            return min + (float)duelItemRng.NextDouble() * (max - min);
+        return Random.Range(min, max);
+    }
 
     private float NextLayoutValue()
     {
@@ -104,12 +119,15 @@ public class PlatformSpawner : MonoBehaviour
 
         if (MultiplayerManager.IsDuelActive && MultiplayerManager.Instance != null)
         {
-            duelLayoutRng = new System.Random(MultiplayerManager.Instance.SharedSeed);
+            int seed = MultiplayerManager.Instance.SharedSeed;
+            duelLayoutRng = new System.Random(seed);
+            duelItemRng = new System.Random(seed ^ 0x5A3C7E19);
             spawnedPlatformCounter = 0;
         }
         else
         {
             duelLayoutRng = null;
+            duelItemRng = null;
             spawnedPlatformCounter = 0;
         }
 
@@ -265,7 +283,8 @@ public class PlatformSpawner : MonoBehaviour
 
         int currentPlatformIndex = spawnedPlatformCounter++;
         bool isDuelDeterministic = MultiplayerManager.IsDuelActive && duelLayoutRng != null;
-        float deterministicScore = isDuelDeterministic ? (currentPlatformIndex * 17f) : GameManager.currentScore;
+        // Ortalama 1.55 birim platform aralığında ~7.6 skor/platform ile SkyCycleManager gökyüzü evresiyle birebir hizalı kalır
+        float deterministicScore = isDuelDeterministic ? (currentPlatformIndex * 7.6f) : GameManager.currentScore;
 
         Vector2 spawnPos = new Vector2(chosenX, transform.position.y);
         GameObject selectedPrefab = isDuelDeterministic
@@ -301,11 +320,12 @@ public class PlatformSpawner : MonoBehaviour
 
         // 1000 skordan sonra nadir olarak platform üzerinde can ikonu üret
         bool spawnedHeart = false;
-        if (!isFirstPlatform && GameManager.currentScore >= 1000f && platformsSinceLastHeart >= minPlatformsBetweenHearts)
+        float itemScoreRef = isDuelDeterministic ? deterministicScore : GameManager.currentScore;
+        if (!isFirstPlatform && itemScoreRef >= 1000f && platformsSinceLastHeart >= minPlatformsBetweenHearts)
         {
-            if (Random.value < heartSpawnChance)
+            if (NextItemValue() < heartSpawnChance)
             {
-                SpawnHeartPickup(lastSpawnedPlatform);
+                SpawnHeartPickup(lastSpawnedPlatform, isDuelDeterministic ? currentPlatformIndex : -1);
                 platformsSinceLastHeart = 0;
                 spawnedHeart = true;
             }
@@ -319,11 +339,12 @@ public class PlatformSpawner : MonoBehaviour
             platformsSinceLastHeart++;
         }
 
-        // İlk doğuş platformu dışında güçlendirme (Kalkan / Roket) veya coin meyvesi üret
+        // İlk doğuş platformu dışında güçlendirme (Kalkan / Roket / Kuş Ayağı) veya coin meyvesi üret
         if (!isFirstPlatform)
         {
-            bool spawnedPowerUp = TrySpawnPlatformPowerUp(lastSpawnedPlatform, spawnedHeart);
-            TrySpawnPlatformCoin(lastSpawnedPlatform, spawnedHeart || spawnedPowerUp);
+            int duelItemId = isDuelDeterministic ? currentPlatformIndex : -1;
+            bool spawnedPowerUp = TrySpawnPlatformPowerUp(lastSpawnedPlatform, spawnedHeart, isDuelDeterministic, itemScoreRef, duelItemId);
+            TrySpawnPlatformCoin(lastSpawnedPlatform, spawnedHeart || spawnedPowerUp, isDuelDeterministic, itemScoreRef, duelItemId);
         }
 
         // Bir sonraki platform için güvenli ve rahat dikey mesafe belirle (1.6f - 2.1f)
@@ -332,12 +353,19 @@ public class PlatformSpawner : MonoBehaviour
 
     private GameObject SelectDeterministicDuelPrefab(float deterministicScore)
     {
-        float loopedScore = deterministicScore % 2000f;
+        if (skyCycleManager == null)
+        {
+            skyCycleManager = Object.FindAnyObjectByType<SkyCycleManager>();
+        }
+
+        bool loopEnabled = skyCycleManager != null && skyCycleManager.useContinuousLoop;
+        float evalScore = loopEnabled ? (deterministicScore % 2000f) : deterministicScore;
+
         GameObject[] pool = null;
-        if (loopedScore < 280f) pool = HasValidItem(sabahPrefabs) ? sabahPrefabs : platformPrefabs;
-        else if (loopedScore < 520f) pool = HasValidItem(oglePrefabs) ? oglePrefabs : platformPrefabs;
-        else if (loopedScore < 760f) pool = HasValidItem(aksamPrefabs) ? aksamPrefabs : platformPrefabs;
-        else if (loopedScore < 1200f) pool = HasValidItem(gecePrefabs) ? gecePrefabs : platformPrefabs;
+        if (evalScore < 280f) pool = HasValidItem(sabahPrefabs) ? sabahPrefabs : platformPrefabs;
+        else if (evalScore < 520f) pool = HasValidItem(oglePrefabs) ? oglePrefabs : platformPrefabs;
+        else if (evalScore < 760f) pool = HasValidItem(aksamPrefabs) ? aksamPrefabs : platformPrefabs;
+        else if (evalScore < 1200f) pool = HasValidItem(gecePrefabs) ? gecePrefabs : platformPrefabs;
         else pool = HasValidItem(uzayPrefabs) ? uzayPrefabs : platformPrefabs;
 
         if (!HasValidItem(pool)) pool = platformPrefabs;
@@ -455,7 +483,7 @@ public class PlatformSpawner : MonoBehaviour
     [SerializeField] private float superFeetMinScore = 120f;
     private int platformsSinceLastSuperFeet = 10;
 
-    private bool TrySpawnPlatformPowerUp(GameObject platform, bool platformHasHeart)
+    private bool TrySpawnPlatformPowerUp(GameObject platform, bool platformHasHeart, bool isDuelDeterministic, float effectiveScore, int duelItemId)
     {
         if (platform == null || platformHasHeart)
         {
@@ -465,45 +493,46 @@ public class PlatformSpawner : MonoBehaviour
             return false;
         }
 
-        bool isRocketBoosting = GameManager.Instance != null && GameManager.Instance.IsRocketBoosting;
-        bool playerHasShield = GameManager.Instance != null && GameManager.Instance.HasShield;
-        bool hasSuperFeet = GameManager.Instance != null && GameManager.Instance.IsSuperFeetActive;
+        // Düello modunda iki cihazda birebir aynı güçlendirmelerin doğması için yerel aktif güçlendirme durumuna bakılmaz!
+        bool isRocketBoosting = !isDuelDeterministic && GameManager.Instance != null && GameManager.Instance.IsRocketBoosting;
+        bool playerHasShield = !isDuelDeterministic && GameManager.Instance != null && GameManager.Instance.HasShield;
+        bool hasSuperFeet = !isDuelDeterministic && GameManager.Instance != null && GameManager.Instance.IsSuperFeetActive;
 
         // 1. Kuş Ayağı (2 Platform Zıplama + İçinden Geçme)
         if (!hasSuperFeet
-            && GameManager.currentScore >= superFeetMinScore
+            && effectiveScore >= superFeetMinScore
             && platformsSinceLastSuperFeet >= minPlatformsBetweenSuperFeet
-            && Random.value < superFeetSpawnChance)
+            && NextItemValue() < superFeetSpawnChance)
         {
             platformsSinceLastSuperFeet = 0;
             platformsSinceLastRocket++;
             platformsSinceLastShield++;
-            SpawnPowerUpOnPlatform(platform, PowerUpType.SuperFeet);
+            SpawnPowerUpOnPlatform(platform, PowerUpType.SuperFeet, duelItemId);
             return true;
         }
         platformsSinceLastSuperFeet++;
 
         // 2. Roket kontrolü
         if (!isRocketBoosting
-            && GameManager.currentScore >= rocketMinScore
+            && effectiveScore >= rocketMinScore
             && platformsSinceLastRocket >= minPlatformsBetweenRockets
-            && Random.value < rocketSpawnChance)
+            && NextItemValue() < rocketSpawnChance)
         {
             platformsSinceLastRocket = 0;
             platformsSinceLastShield++;
-            SpawnPowerUpOnPlatform(platform, PowerUpType.Rocket);
+            SpawnPowerUpOnPlatform(platform, PowerUpType.Rocket, duelItemId);
             return true;
         }
         platformsSinceLastRocket++;
 
         // 3. Kalkan kontrolü
         if (!playerHasShield
-            && GameManager.currentScore >= shieldMinScore
+            && effectiveScore >= shieldMinScore
             && platformsSinceLastShield >= minPlatformsBetweenShields
-            && Random.value < shieldSpawnChance)
+            && NextItemValue() < shieldSpawnChance)
         {
             platformsSinceLastShield = 0;
-            SpawnPowerUpOnPlatform(platform, PowerUpType.Shield);
+            SpawnPowerUpOnPlatform(platform, PowerUpType.Shield, duelItemId);
             return true;
         }
         platformsSinceLastShield++;
@@ -511,11 +540,17 @@ public class PlatformSpawner : MonoBehaviour
         return false;
     }
 
-    private void SpawnPowerUpOnPlatform(GameObject platform, PowerUpType chosenType)
+    private void SpawnPowerUpOnPlatform(GameObject platform, PowerUpType chosenType, int duelItemId)
     {
         Vector3 pScale = platform.transform.lossyScale;
-        float worldX = Random.Range(-0.26f, 0.26f);
+        float worldX = NextItemRange(-0.26f, 0.26f);
         float worldY = 0.72f;
+
+        if (duelItemId >= 0 && MultiplayerManager.Instance != null && MultiplayerManager.Instance.IsDuelItemCollected(duelItemId))
+        {
+            return;
+        }
+
         Vector3 localOffset = new Vector3(
             worldX / Mathf.Max(0.01f, Mathf.Abs(pScale.x)),
             worldY / Mathf.Max(0.01f, Mathf.Abs(pScale.y)),
@@ -526,7 +561,13 @@ public class PlatformSpawner : MonoBehaviour
             : (chosenType == PowerUpType.SuperFeet ? "PowerUp_SuperFeet" : "PowerUp_Rocket");
         GameObject puObj = new GameObject(goName);
         PowerUpPickup pickup = puObj.AddComponent<PowerUpPickup>();
+        pickup.DuelItemId = duelItemId;
         pickup.Configure(chosenType, platform.transform, localOffset);
+
+        if (duelItemId >= 0 && MultiplayerManager.Instance != null)
+        {
+            MultiplayerManager.Instance.RegisterDuelItem(duelItemId, puObj);
+        }
     }
 
     [Header("Coin Meyve Ayarları")]
@@ -536,7 +577,7 @@ public class PlatformSpawner : MonoBehaviour
     [SerializeField] private float rareFruitChance = 0.14f;
     private int platformsSinceLastCoin = 3;
 
-    private void TrySpawnPlatformCoin(GameObject platform, bool platformHasHeart)
+    private void TrySpawnPlatformCoin(GameObject platform, bool platformHasHeart, bool isDuelDeterministic, float effectiveScore, int duelItemId)
     {
         if (platform == null || platformHasHeart)
         {
@@ -550,7 +591,7 @@ public class PlatformSpawner : MonoBehaviour
             return;
         }
 
-        if (Random.value >= coinSpawnChance)
+        if (NextItemValue() >= coinSpawnChance)
         {
             platformsSinceLastCoin++;
             return;
@@ -558,17 +599,22 @@ public class PlatformSpawner : MonoBehaviour
 
         platformsSinceLastCoin = 0;
 
-        bool isRare = GameManager.currentScore >= rareFruitScoreThreshold && Random.value < rareFruitChance;
+        bool isRare = effectiveScore >= rareFruitScoreThreshold && NextItemValue() < rareFruitChance;
         int value = isRare ? 3 : 1;
 
         // %40 olasılıkla risk-ödül konumu: kenara kaydırılmış ve biraz daha yüksekte
-        bool riskReward = Random.value < 0.40f;
+        bool riskReward = NextItemValue() < 0.40f;
         float worldX = riskReward
-            ? (Random.value < 0.5f ? -1f : 1f) * Random.Range(0.28f, 0.46f)
-            : Random.Range(-0.32f, 0.32f);
+            ? (NextItemValue() < 0.5f ? -1f : 1f) * NextItemRange(0.28f, 0.46f)
+            : NextItemRange(-0.32f, 0.32f);
         float worldY = riskReward
-            ? Random.Range(0.88f, 1.12f)
-            : Random.Range(0.62f, 0.78f);
+            ? NextItemRange(0.88f, 1.12f)
+            : NextItemRange(0.62f, 0.78f);
+
+        if (duelItemId >= 0 && MultiplayerManager.Instance != null && MultiplayerManager.Instance.IsDuelItemCollected(duelItemId))
+        {
+            return;
+        }
 
         Vector3 pScale = platform.transform.lossyScale;
         Vector3 localOffset = new Vector3(
@@ -578,14 +624,25 @@ public class PlatformSpawner : MonoBehaviour
 
         GameObject coinGo = new GameObject(isRare ? "Coin_Pineapple_3" : "Coin_Cherries_1");
         CoinPickup pickup = coinGo.AddComponent<CoinPickup>();
+        pickup.DuelItemId = duelItemId;
         pickup.Configure(value, isRare, platform.transform, localOffset);
+
+        if (duelItemId >= 0 && MultiplayerManager.Instance != null)
+        {
+            MultiplayerManager.Instance.RegisterDuelItem(duelItemId, coinGo);
+        }
     }
 
     /// <summary>
     /// Platformun üzerine toplanabilir bir can ikonu yerleştirir.
     /// </summary>
-    void SpawnHeartPickup(GameObject platform)
+    void SpawnHeartPickup(GameObject platform, int duelItemId)
     {
+        if (duelItemId >= 0 && MultiplayerManager.Instance != null && MultiplayerManager.Instance.IsDuelItemCollected(duelItemId))
+        {
+            return;
+        }
+
         GameObject heartObj = new GameObject("HealthPickup");
         heartObj.transform.position = new Vector3(platform.transform.position.x, platform.transform.position.y + 0.65f, 0f);
 
@@ -601,8 +658,14 @@ public class PlatformSpawner : MonoBehaviour
         col.isTrigger = true;
         col.radius = 0.5f;
 
-        heartObj.AddComponent<HealthPickup>();
+        HealthPickup hp = heartObj.AddComponent<HealthPickup>();
+        hp.DuelItemId = duelItemId;
 
         heartObj.transform.SetParent(platform.transform);
+
+        if (duelItemId >= 0 && MultiplayerManager.Instance != null)
+        {
+            MultiplayerManager.Instance.RegisterDuelItem(duelItemId, heartObj);
+        }
     }
 }
