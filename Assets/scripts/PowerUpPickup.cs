@@ -21,6 +21,11 @@ public class PowerUpPickup : MonoBehaviour
     private Vector3 baseScale;
     private bool isCollected = false;
 
+    /// <summary>
+    /// Düello modunda iki oyuncu arasında ortak olan deterministik item kimliği (-1: tek oyunculu).
+    /// </summary>
+    public int DuelItemId { get; set; } = -1;
+
     private static Sprite cachedShieldPickupSprite;
     private static Sprite cachedRocketPickupSprite;
     private static Sprite cachedSuperFeetSprite;
@@ -78,6 +83,11 @@ public class PowerUpPickup : MonoBehaviour
         {
             isCollected = true;
 
+            if (DuelItemId >= 0 && MultiplayerManager.IsDuelActive && MultiplayerManager.Instance != null)
+            {
+                MultiplayerManager.Instance.NotifyLocalItemCollected(DuelItemId);
+            }
+
             GameManager gm = GameManager.Instance != null ? GameManager.Instance : Object.FindFirstObjectByType<GameManager>();
             if (gm != null)
             {
@@ -97,6 +107,17 @@ public class PowerUpPickup : MonoBehaviour
 
             Destroy(gameObject);
         }
+    }
+
+    /// <summary>
+    /// Düello modunda rakip bu güçlendirmeyi aldığında yerel oyuncuya efekt vermeden sahneden kaldırır.
+    /// </summary>
+    public void ConsumeRemotely()
+    {
+        if (isCollected) return;
+        isCollected = true;
+        JumpDustEffect.SpawnJumpDust(transform.position);
+        Destroy(gameObject);
     }
 
     #region Procedural Pixel-Art Sprites
