@@ -160,4 +160,15 @@ public class PlatformMovement : MonoBehaviour
         horizontalDistance = distance;
         startX = transform.position.x;
     }
+
+    /// <summary>
+    /// Platformun futureSeconds saniye sonraki tam yatay merkez konumunu hesaplar (Bot yörünge tahmini için).
+    /// </summary>
+    public float PredictXAfter(float futureSeconds)
+    {
+        if (!isMovingHorizontal) return transform.position.x;
+        float clock = (useDeterministicDuelClock ? MultiplayerManager.DuelMatchElapsedTime : Time.time) + Mathf.Max(0f, futureSeconds);
+        float predX = startX + Mathf.Sin((clock * horizontalSpeed) + randomOffset) * horizontalDistance;
+        return Mathf.Clamp(predX, -screenLimit, screenLimit);
+    }
 }
