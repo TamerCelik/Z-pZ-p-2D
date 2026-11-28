@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 
@@ -9,10 +9,12 @@ public class SettingsManager : MonoBehaviour
     public Slider sesSlider;
 
     [Header("Kontrol Ayarları")]
-    [Tooltip("Kontrol modunu gösteren buton metni (Örn: TUŞLAR / JİROSKOP)")]
+    [Tooltip("Kontrol modunu gösteren buton metni (Örn: YÖN TUŞLARI / JOYSTİCK)")]
     public TextMeshProUGUI kontrolButonText;
     [Tooltip("Yön tuşlarının sağda mı solda mı olduğunu gösteren buton metni")]
     public TextMeshProUGUI tusYeriButonText;
+
+    private KawaiiControlSelectorUI kawaiiControlSelector;
 
     void Start()
     {
@@ -25,8 +27,8 @@ public class SettingsManager : MonoBehaviour
             sesSlider.value = kayitliSes;
         }
 
-        // Kayıtlı kontrol modunu yükle ve metni güncelle
-        int kayitliMod = PlayerPrefs.GetInt("ControlMode", 0);
+        // Kayıtlı kontrol modunu yükle (0 = Yön Tuşları, 2 = Joystick; eski Jiroskop=1 otomatik temizlenir)
+        int kayitliMod = KawaiiControlSelectorUI.GetNormalizedControlMode();
         GuncelleKontrolText(kayitliMod);
 
         int kayitliDuzen = PlayerPrefs.GetInt("ButtonLayout", 0);
@@ -34,13 +36,22 @@ public class SettingsManager : MonoBehaviour
 
         if (ayarlarPaneli != null)
         {
+            kawaiiControlSelector = KawaiiControlSelectorUI.Attach(ayarlarPaneli, SetControlMode);
             ayarlarPaneli.SetActive(false);
         }
     }
 
     public void PaneliAc()
     {
-        if (ayarlarPaneli != null) ayarlarPaneli.SetActive(true);
+        if (ayarlarPaneli != null)
+        {
+            if (kawaiiControlSelector == null)
+            {
+                kawaiiControlSelector = KawaiiControlSelectorUI.Attach(ayarlarPaneli, SetControlMode);
+            }
+            ayarlarPaneli.SetActive(true);
+            kawaiiControlSelector.RefreshVisuals(KawaiiControlSelectorUI.GetNormalizedControlMode());
+        }
     }
 
     public void PaneliKapat()
@@ -55,33 +66,36 @@ public class SettingsManager : MonoBehaviour
     }
 
     /// <summary>
-    /// Ayarlar panelindeki butona tıklandığında modları sırayla değiştirir.
-    /// 0 = Tuşlar, 1 = Jiroskop (Eğim), 2 = Analog
+    /// Kontrol modunu Yön Tuşları (0) ve Joystick (2) arasında değiştirir.
     /// </summary>
     public void KontrolModunuDegistir()
     {
-        int mevcutMod = PlayerPrefs.GetInt("ControlMode", 0);
-        int yeniMod = (mevcutMod + 1) % 3;
-        PlayerPrefs.SetInt("ControlMode", yeniMod);
-        PlayerPrefs.Save();
-        GuncelleKontrolText(yeniMod);
+        int mevcutMod = KawaiiControlSelectorUI.GetNormalizedControlMode();
+        int yeniMod = (mevcutMod == KawaiiControlSelectorUI.ModeJoystick)
+            ? KawaiiControlSelectorUI.ModeButtons
+            : KawaiiControlSelectorUI.ModeJoystick;
+        SetControlMode(yeniMod);
     }
 
     public void SetControlMode(int mode)
     {
-        PlayerPrefs.SetInt("ControlMode", mode);
+        int normalized = (mode == KawaiiControlSelectorUI.ModeJoystick)
+            ? KawaiiControlSelectorUI.ModeJoystick
+            : KawaiiControlSelectorUI.ModeButtons;
+        PlayerPrefs.SetInt("ControlMode", normalized);
         PlayerPrefs.Save();
-        GuncelleKontrolText(mode);
+        GuncelleKontrolText(normalized);
+        if (kawaiiControlSelector != null)
+        {
+            kawaiiControlSelector.RefreshVisuals(normalized);
+        }
     }
-
 
     private void GuncelleKontrolText(int mode)
     {
         if (kontrolButonText != null)
         {
-            if (mode == 1) kontrolButonText.text = "JİROSKOP";
-            else if (mode == 2) kontrolButonText.text = "ANALOG";
-            else kontrolButonText.text = "TUŞ";
+            kontrolButonText.text = (mode == KawaiiControlSelectorUI.ModeJoystick) ? "JOYSTİCK" : "YÖN TUŞLARI";
         }
     }
 
