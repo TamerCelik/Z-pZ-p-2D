@@ -180,10 +180,21 @@ public class MultiplayerManager : MonoBehaviour
     private float botMoveSpeed = 5.5f;
     private float botJumpForce = 5.2f;
     private float botBaseGravityScale = 1.5f;
-    private float botFootRadius = 0.28f;
+    private float botFootRadius = 0.30f;
     private float botWrapThreshold = 3.0f;
     private float botCurrentMoveInput;
     private float botJumpCooldown;
+    private float botCoyoteTimer;
+    private float botCornerHopCooldown;
+    private float botUngroundLockTimer;
+    private float botAirTime;
+    private PlatformMovement botLockedTargetPlat;
+    private PlatformMovement botLastAttemptFromPlat;
+    private PlatformMovement botLastAttemptTargetPlat;
+    private int botSamePlatFailCount;
+    private float botLastTriedHookSign;
+    private float botHookSideSign;
+    private float botLastTakeoffY = -99f;
     private bool botGrounded;
     private bool botWasGrounded = true;
     private bool botPlacedOnStartPlatform;
@@ -986,12 +997,23 @@ public class MultiplayerManager : MonoBehaviour
         botMistakeTimer = 0f;
         botMistakeOffset = 0f;
         botCurrentMoveInput = 0f;
-        botJumpCooldown = 0.12f;
+        botJumpCooldown = 0.10f;
+        botCoyoteTimer = 0f;
+        botCornerHopCooldown = 0f;
+        botUngroundLockTimer = 0f;
+        botAirTime = 0f;
+        botLockedTargetPlat = null;
+        botLastAttemptFromPlat = null;
+        botLastAttemptTargetPlat = null;
+        botSamePlatFailCount = 0;
+        botLastTriedHookSign = 0f;
+        botHookSideSign = 0f;
+        botLastTakeoffY = -99f;
         botGrounded = false;
         botWasGrounded = true;
         botPlacedOnStartPlatform = false;
         botVisualStretch = Vector2.one;
-        botNextRocketTime = UnityEngine.Random.Range(15f, 23f);
+        botNextRocketTime = UnityEngine.Random.Range(16f, 24f);
         botNextMistakeTime = UnityEngine.Random.Range(20f, 30f);
 
         Time.timeScale = 1f;
@@ -1106,9 +1128,8 @@ public class MultiplayerManager : MonoBehaviour
 
             GameObject feetObj = new GameObject("BotFeetPoint");
             feetObj.transform.SetParent(opponentAvatarObj.transform, false);
-            feetObj.transform.localPosition = (pc != null && pc.ayakNoktasi != null)
-                ? pc.ayakNoktasi.localPosition
-                : new Vector3(-0.054f, -0.158f, 0f);
+            float feetLocalY = (pc != null && pc.ayakNoktasi != null) ? pc.ayakNoktasi.localPosition.y : -0.158f;
+            feetObj.transform.localPosition = new Vector3(0f, feetLocalY, 0f);
             botFeetTransform = feetObj.transform;
         }
 
@@ -1687,26 +1708,29 @@ public class MultiplayerManager : MonoBehaviour
         // İlk karede GameManager.Start() ilk platformu oluşturduktan hemen sonra botu da aynı başlangıç platformuna oturt
         if (!botPlacedOnStartPlatform && platforms.Length > 0)
         {
-            PlatformMovement startPlat = null;
-            GameManager gmInit = GameManager.Instance;
-            float refY = (gmInit != null && gmInit.player != null) ? gmInit.player.transform.position.y : -1.5f;
-            float bestStartDiff = 999f;
-            for (int i = 0; i < platforms.Length; i++)
+            PlatformMovement startPlat = FindPlatformByIndex(0);
+            if (startPlat == null)
             {
-                if (platforms[i] == null) continue;
-                float d = Mathf.Abs(platforms[i].transform.position.y - refY);
-                if (d < bestStartDiff)
+                GameManager gmInit = GameManager.Instance;
+                float refY = (gmInit != null && gmInit.player != null) ? gmInit.player.transform.position.y : -1.5f;
+                float bestStartDiff = 999f;
+                for (int i = 0; i < platforms.Length; i++)
                 {
-                    bestStartDiff = d;
-                    startPlat = platforms[i];
+                    if (platforms[i] == null) continue;
+                    float d = Mathf.Abs(platforms[i].transform.position.y - refY);
+                    if (d < bestStartDiff)
+                    {
+                        bestStartDiff = d;
+                        startPlat = platforms[i];
+                    }
                 }
             }
 
             if (startPlat != null)
             {
                 Collider2D pCol = startPlat.GetComponent<Collider2D>();
-                float topY = pCol != null ? pCol.bounds.max.y : (startPlat.transform.position.y + 0.16f);
-                Vector3 placePos = new Vector3(startPlat.transform.position.x + 0.22f, topY + 0.28f, 0f);
+                float topY = pCol != null ? pCol.bounds.max.y : (startPlat.transform.position.y + 0.15f);
+                Vector3 placePos = new Vector3(startPlat.transform.position.x + 0.22f, topY + 0.255f, 0f);
                 opponentAvatarObj.transform.position = placePos;
                 botRb.position = placePos;
                 botRb.linearVelocity = new Vector2(0f, -GameManager.globalPlatformSpeed);
@@ -1716,12 +1740,16 @@ public class MultiplayerManager : MonoBehaviour
         }
 
         Camera cam = Camera.main;
+        float camBottomY = -5.0f;
         if (cam != null)
         {
             botWrapThreshold = (cam.orthographicSize * cam.aspect) + 0.45f;
+            camBottomY = cam.transform.position.y - cam.orthographicSize;
         }
 
         botSimTime += dt;
+        if (botCornerHopCooldown > 0f) botCornerHopCooldown -= dt;
+        if (botUngroundLockTimer > 0f) botUngroundLockTimer -= dt;
 
         GameManager gm = GameManager.Instance;
         bool localOnRocket = gm != null && gm.IsRocketBoosting;
@@ -1735,47 +1763,103 @@ public class MultiplayerManager : MonoBehaviour
         // Roket zamanı geldiyse bot gerçekten roketle uçar ve rakibe sabotaj uygular
         if (botSimTime >= botNextRocketTime)
         {
-            botNextRocketTime = botSimTime + UnityEngine.Random.Range(18f, 27f);
+            botNextRocketTime = botSimTime + UnityEngine.Random.Range(19f, 28f);
             botSelfRocketTimer = 3.0f;
+            botLockedTargetPlat = null;
+            botHookSideSign = 0f;
             if (!localOnRocket)
             {
                 opponentRocketTimer = 3.0f;
             }
         }
 
-        // Arada bir gerçek insan gibi ufak hedef sapması / geç tepki (maçın rekabetçi ve kazanılabilir kalması için)
-        if (botSimTime >= botNextMistakeTime)
-        {
-            botNextMistakeTime = botSimTime + UnityEngine.Random.Range(18f, 28f);
-            botMistakeTimer = UnityEngine.Random.Range(0.55f, 0.95f);
-            botMistakeOffset = (UnityEngine.Random.value < 0.5f ? -1f : 1f) * UnityEngine.Random.Range(0.45f, 0.72f);
-        }
-        if (botMistakeTimer > 0f)
-        {
-            botMistakeTimer -= dt;
-        }
+        // Uzay evresindeki düşen meteorları algıla (kaçınma ve güvenli platform seçimi için)
+        SpaceMeteorProjectile[] activeMeteors = FindObjectsByType<SpaceMeteorProjectile>(FindObjectsSortMode.None);
 
-        // Zemin kontrolü (PlayerController ile birebir aynı mantık)
-        Vector2 feetPos = botFeetTransform != null ? (Vector2)botFeetTransform.position : (Vector2)opponentAvatarObj.transform.position + new Vector2(0f, -0.22f);
-        Collider2D groundHit = Physics2D.OverlapCircle(feetPos, botFootRadius, botGroundMask);
-        if (groundHit != null)
+        // Zemin & Köşe Tırmanma Kontrolü (Simetrik ve görsel corner_hang kutusuyla birebir uyumlu)
+        Vector2 botCenterPos = opponentAvatarObj.transform.position;
+        Vector2 feetPos = botFeetTransform != null
+            ? (Vector2)botFeetTransform.position
+            : botCenterPos + new Vector2(0f, -0.225f);
+        Collider2D rawGroundHit = Physics2D.OverlapCircle(feetPos, botFootRadius, botGroundMask);
+
+        bool standingOnTop = false;
+        bool touchingUpperSideCorner = false;
+        PlatformMovement cornerPlat = null;
+        float currentBotMinY = botCollider.bounds.min.y;
+
+        // Zıplama anından hemen sonraki 70ms boyunca (FixedUpdate konum adımı tamamlanana kadar) sahte yere temas algılamasını kilitle!
+        if (botUngroundLockTimer <= 0f && rawGroundHit != null)
         {
-            if (botRb.linearVelocity.y > 0.20f || botCollider.bounds.min.y < groundHit.bounds.center.y)
+            Bounds gb = rawGroundHit.bounds;
+            if (botRb.linearVelocity.y <= 0.22f && currentBotMinY >= gb.max.y - 0.14f)
             {
-                groundHit = null;
+                standingOnTop = true;
             }
         }
-        botGrounded = groundHit != null;
-        PlatformMovement standingPlat = (botGrounded && groundHit != null) ? groundHit.GetComponentInParent<PlatformMovement>() : null;
 
-        if (botGrounded && !botWasGrounded && botRb.linearVelocity.y <= 0.15f)
+        // Üstteki bir platformun yan/köşe yüzeyiyle temas kontrolü:
+        // YALNIZCA ayaklar platformun üst yüzeyine yetişemediğinde (currentBotMinY < sb.max.y - 0.03f) ve tepe noktasında (vy <= 0.20f) devreye girer!
+        if (botUngroundLockTimer <= 0f && !standingOnTop && botRb.linearVelocity.y <= 0.20f && botRb.linearVelocity.y >= -3.8f)
         {
-            botVisualStretch = new Vector2(1.14f, 0.88f);
+            Collider2D sideHit = Physics2D.OverlapBox(
+                botCenterPos + new Vector2(0f, -0.04f),
+                new Vector2(0.68f, 0.44f),
+                0f,
+                botGroundMask);
+
+            if (sideHit != null && !sideHit.usedByEffector)
+            {
+                Bounds sb = sideHit.bounds;
+                if (currentBotMinY < sb.max.y - 0.03f
+                    && sb.max.y > botLastTakeoffY + 0.30f
+                    && botCenterPos.y >= sb.min.y - 0.08f)
+                {
+                    touchingUpperSideCorner = true;
+                    cornerPlat = sideHit.GetComponentInParent<PlatformMovement>();
+                }
+            }
+        }
+
+        botGrounded = standingOnTop;
+        PlatformMovement standingPlat = standingOnTop && rawGroundHit != null
+            ? rawGroundHit.GetComponentInParent<PlatformMovement>()
+            : null;
+        Collider2D standingCol = standingOnTop ? rawGroundHit : null;
+
+        if (botGrounded)
+        {
+            botCoyoteTimer = 0.12f;
+            botAirTime = 0f;
+            if (!botWasGrounded && botRb.linearVelocity.y <= 0.15f)
+            {
+                botVisualStretch = new Vector2(1.14f, 0.88f);
+                // Aynı platforma geri düştüyse başarısız deneme sayacını artır ki aynı hatayı tekrarlamasın!
+                if (standingPlat != null && standingPlat == botLastAttemptFromPlat)
+                {
+                    botSamePlatFailCount++;
+                }
+                else
+                {
+                    botSamePlatFailCount = 0;
+                    botLastTriedHookSign = 0f;
+                }
+                botLockedTargetPlat = null;
+                botHookSideSign = 0f;
+            }
+        }
+        else
+        {
+            botCoyoteTimer -= dt;
         }
         botWasGrounded = botGrounded;
 
         Vector3 botPos = opponentAvatarObj.transform.position;
+        float botFeetY = botCollider.bounds.min.y;
         float fullWrapWidth = botWrapThreshold * 2f;
+        float currentMoveSpeed = botMoveSpeed * Mathf.Sqrt(speedRatio);
+        float jumpImpulse = botJumpForce * Mathf.Sqrt(speedRatio);
+        float gravityAccel = Mathf.Max(6f, Mathf.Abs(Physics2D.gravity.y) * botBaseGravityScale * speedRatio);
 
         if (botSelfRocketTimer > 0f)
         {
@@ -1783,15 +1867,60 @@ public class MultiplayerManager : MonoBehaviour
             botRb.gravityScale = 0f;
             float targetY = gm != null ? gm.rocketTargetY : 1.15f;
             float nextY = Mathf.Lerp(botPos.y, targetY, Mathf.Clamp01(dt * 6.5f));
-            float weaveVx = Mathf.Sin(botSimTime * 3.2f) * botMoveSpeed * 0.65f;
+
+            float rocketVx;
+            if (botSelfRocketTimer < 0.95f)
+            {
+                // Roket bitmeden son 0.95 saniyede altındaki en güvenli platformun tam üstüne hizalan!
+                PlatformMovement landingTarget = null;
+                float bestRocketLandScore = -999f;
+                for (int i = 0; i < platforms.Length; i++)
+                {
+                    PlatformMovement p = platforms[i];
+                    if (p == null) continue;
+                    float py = p.transform.position.y - GameManager.globalPlatformSpeed * botSelfRocketTimer;
+                    if (py > nextY + 0.35f || py < -2.4f) continue;
+
+                    float predX = p.PredictXAfter(botSelfRocketTimer + 0.15f);
+                    float dx = predX - botPos.x;
+                    float meteorPenalty = IsThreatenedByMeteor(predX, py, activeMeteors) ? 3.5f : 0f;
+                    float sc = py * 1.4f - Mathf.Abs(dx) * 0.65f - meteorPenalty;
+                    if (sc > bestRocketLandScore)
+                    {
+                        bestRocketLandScore = sc;
+                        landingTarget = p;
+                    }
+                }
+
+                if (landingTarget != null)
+                {
+                    float aimRocketX = landingTarget.PredictXAfter(botSelfRocketTimer + 0.12f);
+                    float dx = aimRocketX - botPos.x;
+                    rocketVx = Mathf.Clamp(dx * 5.2f, -currentMoveSpeed, currentMoveSpeed);
+                }
+                else
+                {
+                    rocketVx = Mathf.Clamp(-botPos.x * 2.5f, -currentMoveSpeed * 0.7f, currentMoveSpeed * 0.7f);
+                }
+            }
+            else
+            {
+                rocketVx = Mathf.Sin(botSimTime * 2.8f) * currentMoveSpeed * 0.55f;
+                if (Mathf.Abs(botPos.x) > 1.35f && Mathf.Sign(rocketVx) == Mathf.Sign(botPos.x))
+                {
+                    rocketVx = -rocketVx;
+                }
+            }
+
             opponentAvatarObj.transform.position = new Vector3(botPos.x, nextY, 0f);
-            botRb.linearVelocity = new Vector2(weaveVx, 0f);
+            botRb.linearVelocity = new Vector2(rocketVx, 0f);
+            botCurrentMoveInput = Mathf.Clamp(rocketVx / Mathf.Max(0.1f, currentMoveSpeed), -1f, 1f);
             UpdateBotRocketFlame(true);
 
-            // Roket biterken en yakın güvenli platforma hizalan
             if (botSelfRocketTimer <= 0f)
             {
                 UpdateBotRocketFlame(false);
+                botRb.linearVelocity = new Vector2(rocketVx * 0.4f, -GameManager.globalPlatformSpeed);
             }
         }
         else
@@ -1800,187 +1929,345 @@ public class MultiplayerManager : MonoBehaviour
             botRb.gravityScale = botBaseGravityScale * speedRatio;
 
             float desiredMoveInput = 0f;
-            float currentMoveSpeed = botMoveSpeed * Mathf.Sqrt(speedRatio);
+            bool launchedVelocityThisFrame = false;
 
-            if (botGrounded)
+            // 0) Yüksek platform kenarına yetişemediğinde (Corner Hang) tam platform üstüne çıkaracak çevik köşe sıçraması (fazla yükselip havada vakit kaybetmez!)
+            if (!botGrounded && touchingUpperSideCorner && cornerPlat != null && botCornerHopCooldown <= 0f)
+            {
+                float inwardDir = Mathf.Sign(cornerPlat.transform.position.x - botPos.x);
+                if (Mathf.Abs(inwardDir) < 0.01f) inwardDir = 1f;
+
+                botCurrentMoveInput = inwardDir * 0.90f;
+                desiredMoveInput = inwardDir;
+                botRb.linearVelocity = new Vector2(inwardDir * currentMoveSpeed * 0.90f, jumpImpulse * 0.58f);
+                launchedVelocityThisFrame = true;
+                botUngroundLockTimer = 0.06f;
+                botVisualStretch = new Vector2(0.84f, 1.20f);
+                JumpDustEffect.SpawnJumpDust(feetPos);
+                botCornerHopCooldown = 0.24f;
+                botLockedTargetPlat = cornerPlat;
+                botHookSideSign = 0f;
+            }
+            else if (botGrounded || (botCoyoteTimer > 0f && botUngroundLockTimer <= 0f && botRb.linearVelocity.y <= 0.15f && standingPlat != null))
             {
                 botJumpCooldown -= dt;
 
-                // Üstteki en uygun ulaşılabilir platformu seç
-                PlatformMovement bestUpper = null;
-                float bestScore = 999f;
-                for (int i = 0; i < platforms.Length; i++)
+                // YERDEYKEN: Platform üzerinde sağa-sola gezinme yapma; ÖNCE DÜZ ZIPLA, SONRA HAVADA YÖN VER!
+                desiredMoveInput = 0f;
+
+                float safeMinX = botPos.x - 0.45f;
+                float safeMaxX = botPos.x + 0.45f;
+                if (standingCol != null)
                 {
-                    PlatformMovement p = platforms[i];
-                    if (p == null || p == standingPlat) continue;
-                    float dy = p.transform.position.y - botPos.y;
-                    if (dy < 0.38f || dy > 2.15f) continue;
-
-                    float wDx = ShortestWrappedDx(botPos.x, p.transform.position.x, fullWrapWidth);
-                    float score = Mathf.Abs(dy - 1.35f) * 1.35f + Mathf.Abs(wDx) * 0.48f;
-                    if (score < bestScore)
+                    Bounds sb = standingCol.bounds;
+                    safeMinX = sb.min.x + 0.08f;
+                    safeMaxX = sb.max.x - 0.08f;
+                    if (safeMinX > safeMaxX)
                     {
-                        bestScore = score;
-                        bestUpper = p;
-                    }
-                }
-
-                if (bestUpper != null)
-                {
-                    Collider2D upperCol = bestUpper.GetComponent<Collider2D>();
-                    bool upperIsSolid = upperCol != null && !upperCol.usedByEffector;
-                    float aimX = bestUpper.transform.position.x
-                        + (bestUpper.isMovingHorizontal ? bestUpper.CurrentHorizontalVelocity * 0.22f : 0f)
-                        + (botMistakeTimer > 0f ? botMistakeOffset : 0f);
-
-                    float rawDxToUpper = ShortestWrappedDx(botPos.x, aimX, fullWrapWidth);
-                    bool blockedDirectlyOverhead = upperIsSolid && Mathf.Abs(rawDxToUpper) < 0.78f && (bestUpper.transform.position.y - botPos.y) < 1.85f;
-
-                    float walkTargetX = aimX;
-                    if (blockedDirectlyOverhead)
-                    {
-                        // Tıpkı gerçek oyuncu gibi üstteki katı platformun altından sıyrılıp yandan zıplamak için kenara açıl
-                        float sideSign = 1f;
-                        if (standingPlat != null)
-                        {
-                            sideSign = (standingPlat.transform.position.x >= bestUpper.transform.position.x) ? 1f : -1f;
-                        }
-                        walkTargetX = bestUpper.transform.position.x + sideSign * 0.88f;
-                    }
-
-                    float walkDx = ShortestWrappedDx(botPos.x, walkTargetX, fullWrapWidth);
-                    if (Mathf.Abs(walkDx) > 0.08f)
-                    {
-                        desiredMoveInput = Mathf.Clamp(walkDx * 3.2f, -1f, 1f);
-                    }
-
-                    bool onStandingEdge = false;
-                    if (standingPlat != null && groundHit != null)
-                    {
-                        Bounds sb = groundHit.bounds;
-                        onStandingEdge = (botPos.x <= sb.min.x + 0.14f && desiredMoveInput < 0f)
-                                      || (botPos.x >= sb.max.x - 0.14f && desiredMoveInput > 0f);
-                    }
-
-                    bool urgentLow = botPos.y < -1.55f;
-                    bool clearToJump = !blockedDirectlyOverhead || onStandingEdge || urgentLow;
-                    bool withinHorizontalReach = Mathf.Abs(rawDxToUpper) <= 1.75f || urgentLow || onStandingEdge;
-
-                    if (botJumpCooldown <= 0f && clearToJump && withinHorizontalReach && botRb.linearVelocity.y <= 0.15f)
-                    {
-                        botRb.linearVelocity = new Vector2(botRb.linearVelocity.x, 0f);
-                        float jumpImpulse = botJumpForce * Mathf.Sqrt(speedRatio);
-                        botRb.AddForce(Vector2.up * jumpImpulse, ForceMode2D.Impulse);
-                        botVisualStretch = new Vector2(0.80f, 1.24f);
-                        JumpDustEffect.SpawnJumpDust(feetPos);
-                        botGrounded = false;
-                        botJumpCooldown = botPos.y < -0.8f
-                            ? UnityEngine.Random.Range(0.03f, 0.08f)
-                            : UnityEngine.Random.Range(0.07f, 0.17f);
+                        float mid = sb.center.x;
+                        safeMinX = mid - 0.04f;
+                        safeMaxX = mid + 0.04f;
                     }
                 }
                 else if (standingPlat != null)
                 {
-                    // Ekranın çok üstündeyse mevcut platformun ortasında dengede kal
-                    float centerDx = standingPlat.transform.position.x - botPos.x;
-                    if (Mathf.Abs(centerDx) > 0.12f)
+                    safeMinX = standingPlat.transform.position.x - 0.52f;
+                    safeMaxX = standingPlat.transform.position.x + 0.52f;
+                }
+
+                PlatformMovement bestUpper = SelectBestUpperPlatformForBot(
+                    platforms,
+                    standingPlat,
+                    botPos,
+                    botFeetY,
+                    fullWrapWidth,
+                    currentMoveSpeed,
+                    jumpImpulse,
+                    gravityAccel,
+                    activeMeteors,
+                    out float estFlightTime);
+
+                bool underImmediateMeteor = IsThreatenedByMeteor(botPos.x, botPos.y, activeMeteors, out float meteorThreatX);
+                bool calmWaitNearTop = botPos.y > 2.15f && !underImmediateMeteor;
+
+                if (bestUpper != null && !calmWaitNearTop)
+                {
+                    Collider2D upperCol = bestUpper.GetComponent<Collider2D>();
+                    float upperTopY = upperCol != null ? upperCol.bounds.max.y : (bestUpper.transform.position.y + 0.14f);
+                    bool upperIsSolid = upperCol == null || !upperCol.usedByEffector;
+
+                    float nearFutureUpperX = bestUpper.PredictXAfter(0.16f);
+                    float landingUpperX = bestUpper.PredictXAfter(estFlightTime);
+                    float horizDx = ComputeSmartHorizontalDelta(botPos.x, landingUpperX, fullWrapWidth);
+
+                    PlatformMovement blockingCeil = FindOverheadSolidBlocker(
+                        platforms,
+                        standingPlat,
+                        botPos.x,
+                        botPos.y,
+                        upperTopY,
+                        0.14f);
+
+                    bool blockedOverhead = (upperIsSolid && Mathf.Abs(nearFutureUpperX - botPos.x) < 0.88f && (upperTopY - botFeetY) < 1.90f)
+                                        || (blockingCeil != null);
+
+                    // Havada hangi yöne kavis çizeceğini alt platformun açık kenarına ve ekran sınırına göre seç
+                    float plannedHookSign = 0f;
+                    if (blockedOverhead)
                     {
-                        desiredMoveInput = Mathf.Clamp(centerDx * 2.5f, -1f, 1f);
+                        PlatformMovement refBlock = blockingCeil != null ? blockingCeil : bestUpper;
+                        float bx0 = refBlock.PredictXAfter(0.15f);
+                        float sx0 = standingPlat != null ? standingPlat.PredictXAfter(0.10f) : botPos.x;
+
+                        float rClear = bx0 + 0.92f;
+                        float lClear = bx0 - 0.92f;
+                        float rScore = Mathf.Abs(rClear - botPos.x)
+                                     + Mathf.Max(0f, rClear - (sx0 + 0.56f)) * 1.6f
+                                     + (rClear > 2.25f ? 2.5f : 0f);
+                        float lScore = Mathf.Abs(lClear - botPos.x)
+                                     + Mathf.Max(0f, (sx0 - 0.56f) - lClear) * 1.6f
+                                     + (lClear < -2.25f ? 2.5f : 0f);
+
+                        plannedHookSign = (rScore <= lScore) ? 1f : -1f;
+
+                        // Yalnızca 3+ kez aynı kenardan da geçemediyse zıt kenarı dene
+                        if (botSamePlatFailCount >= 3 && Mathf.Abs(botLastTriedHookSign) > 0.1f)
+                        {
+                            float flipped = -botLastTriedHookSign;
+                            if (Mathf.Abs(bx0 + flipped * 0.92f) <= 2.30f)
+                            {
+                                plannedHookSign = flipped;
+                            }
+                        }
                     }
+
+                    // Uzaktaki hareketli platform bize doğru yaklaşıyorsa menzile girene kadar platformda sabit bekle, sonra zıpla!
+                    float maxAirSteerReach = (currentMoveSpeed * Mathf.Max(0.25f, estFlightTime - 0.035f) * 0.95f) + 0.52f;
+                    bool waitForMovingPlat = !blockedOverhead
+                        && Mathf.Abs(horizDx) > maxAirSteerReach
+                        && bestUpper.isMovingHorizontal
+                        && (Mathf.Abs(bestUpper.PredictXAfter(estFlightTime + 0.25f) - botPos.x) < Mathf.Abs(horizDx))
+                        && botPos.y > -2.2f;
+
+                    if (!waitForMovingPlat && botJumpCooldown <= 0f && botRb.linearVelocity.y <= 0.15f)
+                    {
+                        float retryJumpMult = (botSamePlatFailCount >= 1) ? 1.06f : 1.0f;
+                        if (Mathf.Abs(plannedHookSign) > 0.1f)
+                        {
+                            botLastTriedHookSign = plannedHookSign;
+                        }
+
+                        // ÖNCE SAF DİKEY ZIPLA (ters yöne giden platformun yatay hızını miras alma; havada yön ver!)
+                        ExecuteBotJump(
+                            jumpImpulse * retryJumpMult,
+                            feetPos,
+                            botPos.y,
+                            standingPlat,
+                            bestUpper,
+                            plannedHookSign,
+                            gm);
+                        launchedVelocityThisFrame = true;
+                    }
+                }
+                else if (standingPlat != null && underImmediateMeteor)
+                {
+                    float dodgeDir = (botPos.x >= meteorThreatX) ? 1f : -1f;
+                    float targetStandX = dodgeDir > 0f ? safeMaxX : safeMinX;
+                    desiredMoveInput = Mathf.Clamp((targetStandX - botPos.x) * 4.0f, -1f, 1f);
                 }
             }
             else
             {
-                // Havadayken gerçek oyuncu gibi hedef platforma yönlen
-                if (botRb.linearVelocity.y > 0.20f)
+                // HAVADAYKEN: Önü açıksa ilk 0.035 sn düz yükselip sonra havada yön ver; tavan altındaysa havalanır havalanmaz kenara kır!
+                botAirTime += dt;
+                float airSteerDelay = (Mathf.Abs(botHookSideSign) > 0.1f || botSamePlatFailCount >= 1) ? 0f : 0.035f;
+
+                if (botAirTime < airSteerDelay)
                 {
-                    // Yükselirken: hedef üst platformu bul, katı platformun altındaysa kenarından dolaşıp üstüne kıvrıl
-                    PlatformMovement airTarget = null;
-                    float bestAirScore = 999f;
-                    for (int i = 0; i < platforms.Length; i++)
+                    desiredMoveInput = 0f;
+                }
+                else if (botRb.linearVelocity.y > 0.08f)
+                {
+                    PlatformMovement airTarget = botLockedTargetPlat;
+                    if (airTarget == null || (airTarget.transform.position.y - botPos.y) < -0.25f || (airTarget.transform.position.y - botPos.y) > 2.15f)
                     {
-                        PlatformMovement p = platforms[i];
-                        if (p == null) continue;
-                        float dy = p.transform.position.y - botPos.y;
-                        if (dy < -0.18f || dy > 1.85f) continue;
-                        float wDx = ShortestWrappedDx(botPos.x, p.transform.position.x, fullWrapWidth);
-                        float sc = Mathf.Abs(wDx) + Mathf.Abs(dy - 0.65f) * 0.7f;
-                        if (sc < bestAirScore)
-                        {
-                            bestAirScore = sc;
-                            airTarget = p;
-                        }
+                        airTarget = SelectBestUpperPlatformForBot(
+                            platforms,
+                            null,
+                            botPos,
+                            botFeetY,
+                            fullWrapWidth,
+                            currentMoveSpeed,
+                            botRb.linearVelocity.y,
+                            gravityAccel,
+                            activeMeteors,
+                            out _);
+                        botLockedTargetPlat = airTarget;
                     }
+
+                    float remRiseTime = Mathf.Clamp(botRb.linearVelocity.y / gravityAccel, 0.06f, 0.45f);
+                    float airTargetTopY = airTarget != null ? GetPlatformTopY(airTarget) : (botPos.y + 1.1f);
+                    PlatformMovement airBlocker = FindOverheadSolidBlocker(platforms, null, botPos.x, botPos.y, airTargetTopY, 0.06f);
 
                     if (airTarget != null)
                     {
                         Collider2D tCol = airTarget.GetComponent<Collider2D>();
-                        float platTopY = tCol != null ? tCol.bounds.max.y : (airTarget.transform.position.y + 0.15f);
-                        bool solidBelowTop = tCol != null && !tCol.usedByEffector && (botCollider.bounds.min.y < platTopY - 0.05f);
-                        float targetX = airTarget.transform.position.x + (airTarget.isMovingHorizontal ? airTarget.CurrentHorizontalVelocity * 0.15f : 0f);
+                        float platTopY = tCol != null ? tCol.bounds.max.y : (airTarget.transform.position.y + 0.14f);
+                        float platBottomY = tCol != null ? tCol.bounds.min.y : (airTarget.transform.position.y - 0.14f);
+                        float botTopY = botCollider.bounds.max.y;
+                        bool targetIsSolid = tCol == null || !tCol.usedByEffector;
 
-                        float wDx = ShortestWrappedDx(botPos.x, targetX, fullWrapWidth);
-                        if (solidBelowTop && Mathf.Abs(wDx) < 0.76f)
+                        float aimX = airTarget.PredictXAfter(remRiseTime + 0.08f);
+
+                        // Katı platform gövdesi kuralı: ayaklar üst yüzeyi aşana kadar platformun ANLIK [nowX-0.91, nowX+0.91] alt gövdesine girme!
+                        if (airBlocker != null && airBlocker != airTarget && botFeetY < GetPlatformTopY(airBlocker) - 0.02f)
                         {
-                            // Ayaklar platform üst hizasını geçene kadar kenardan yüksel
-                            float aroundSign = wDx <= 0f ? 1f : -1f;
-                            targetX = airTarget.transform.position.x + aroundSign * 0.84f;
-                            wDx = ShortestWrappedDx(botPos.x, targetX, fullWrapWidth);
+                            float bxNow = airBlocker.PredictXAfter(0.05f);
+                            float s = Mathf.Abs(botHookSideSign) > 0.1f
+                                ? botHookSideSign
+                                : ((botPos.x >= bxNow) ? 1f : -1f);
+                            botHookSideSign = s;
+                            aimX = bxNow + s * 0.92f;
+                        }
+                        else if (targetIsSolid
+                                 && botFeetY < platTopY - 0.02f
+                                 && (botRb.linearVelocity.y > 1.35f || botTopY < platBottomY + 0.08f))
+                        {
+                            float nowPlatX = airTarget.PredictXAfter(0.05f);
+                            float side = Mathf.Abs(botHookSideSign) > 0.1f
+                                ? botHookSideSign
+                                : ((botPos.x >= nowPlatX) ? 1f : -1f);
+
+                            bool crossesUnderneath =
+                                (side > 0f && aimX < nowPlatX + 0.91f && botPos.x < nowPlatX + 0.95f) ||
+                                (side < 0f && aimX > nowPlatX - 0.91f && botPos.x > nowPlatX - 0.95f);
+
+                            if (crossesUnderneath && (platBottomY - botTopY) < 0.78f)
+                            {
+                                botHookSideSign = side;
+                                aimX = nowPlatX + side * 0.91f;
+                            }
                         }
 
-                        if (Mathf.Abs(wDx) > 0.05f)
+                        float wDx = ComputeSmartHorizontalDelta(botPos.x, aimX, fullWrapWidth);
+                        if (Mathf.Abs(wDx) > 0.02f)
                         {
-                            desiredMoveInput = Mathf.Clamp(wDx * 3.8f, -1f, 1f);
+                            desiredMoveInput = Mathf.Clamp(wDx * 7.5f, -1f, 1f);
                         }
                     }
                 }
                 else
                 {
-                    // Düşerken: ayakların altındaki en yüksek uygun platformun tam üstüne in!
+                    // DÜŞERKEN: Önce kilitli hedef platforma, olmuyorsa yetişilebilecek en yüksek güvenli platforma havada yönlen!
                     PlatformMovement landPlat = null;
-                    float bestLandScore = -999f;
-                    float botFeetY = botCollider.bounds.min.y;
+                    float bestLandTime = 0.20f;
 
-                    for (int i = 0; i < platforms.Length; i++)
+                    if (botLockedTargetPlat != null)
                     {
-                        PlatformMovement p = platforms[i];
-                        if (p == null) continue;
-                        Collider2D pCol = p.GetComponent<Collider2D>();
-                        float topY = pCol != null ? pCol.bounds.max.y : (p.transform.position.y + 0.15f);
-                        if (topY > botFeetY + 0.18f || topY < botFeetY - 3.2f) continue;
-
-                        float wDx = ShortestWrappedDx(botPos.x, p.transform.position.x, fullWrapWidth);
-                        if (Mathf.Abs(wDx) > 2.25f) continue;
-
-                        // Yüksek olan ve yatayda kolay yetişilen platformu tercih et
-                        float landScore = topY * 1.5f - Mathf.Abs(wDx) * 0.85f;
-                        if (landScore > bestLandScore)
+                        float lockTopY = GetPlatformTopY(botLockedTargetPlat);
+                        if (lockTopY <= botFeetY + 0.22f && IsLandingReachable(
+                                botPos.x,
+                                botFeetY,
+                                botRb.linearVelocity.y,
+                                botLockedTargetPlat,
+                                lockTopY,
+                                fullWrapWidth,
+                                currentMoveSpeed,
+                                gravityAccel,
+                                out float lockFallT))
                         {
-                            bestLandScore = landScore;
-                            landPlat = p;
+                            landPlat = botLockedTargetPlat;
+                            bestLandTime = lockFallT;
+                        }
+                    }
+
+                    if (landPlat == null)
+                    {
+                        float bestLandScore = -999f;
+                        for (int i = 0; i < platforms.Length; i++)
+                        {
+                            PlatformMovement p = platforms[i];
+                            if (p == null) continue;
+                            float topY = GetPlatformTopY(p);
+                            if (topY > botFeetY + 0.22f || topY < camBottomY - 0.15f) continue;
+
+                            if (!IsLandingReachable(
+                                    botPos.x,
+                                    botFeetY,
+                                    botRb.linearVelocity.y,
+                                    p,
+                                    topY,
+                                    fullWrapWidth,
+                                    currentMoveSpeed,
+                                    gravityAccel,
+                                    out float tFall))
+                            {
+                                continue;
+                            }
+
+                            float predX = p.PredictXAfter(tFall);
+                            float wDx = ComputeSmartHorizontalDelta(botPos.x, predX, fullWrapWidth);
+                            float meteorPenalty = IsThreatenedByMeteor(predX, topY, activeMeteors) ? 2.4f : 0f;
+                            float landScore = topY * 1.65f - Mathf.Abs(wDx) * 0.70f - meteorPenalty;
+
+                            if (landScore > bestLandScore)
+                            {
+                                bestLandScore = landScore;
+                                landPlat = p;
+                                bestLandTime = tFall;
+                            }
                         }
                     }
 
                     if (landPlat != null)
                     {
-                        float landX = landPlat.transform.position.x
-                            + (landPlat.isMovingHorizontal ? landPlat.CurrentHorizontalVelocity * 0.12f : 0f)
-                            + (botMistakeTimer > 0f ? botMistakeOffset : 0f);
-                        float wDx = ShortestWrappedDx(botPos.x, landX, fullWrapWidth);
-                        if (Mathf.Abs(wDx) > 0.05f)
+                        float landX = landPlat.PredictXAfter(bestLandTime);
+
+                        // Alt platforma geri iniyorsa aynı kavis (hookSign) yönündeki en dış güvenli kenara in ki bir sonraki zıplamada tavanı direkt geçsin!
+                        if (botLockedTargetPlat != null && landPlat != botLockedTargetPlat)
                         {
-                            desiredMoveInput = Mathf.Clamp(wDx * 4.2f, -1f, 1f);
+                            float failedTargetTopY = GetPlatformTopY(botLockedTargetPlat);
+                            float landTopY = GetPlatformTopY(landPlat);
+                            if (failedTargetTopY > landTopY + 0.25f)
+                            {
+                                float ceilX = botLockedTargetPlat.PredictXAfter(bestLandTime + 0.14f);
+                                if (Mathf.Abs(landX - ceilX) < 0.90f)
+                                {
+                                    float side = Mathf.Abs(botHookSideSign) > 0.1f
+                                        ? botHookSideSign
+                                        : ((landX <= ceilX) ? -1f : 1f);
+                                    Collider2D lCol = landPlat.GetComponent<Collider2D>();
+                                    float halfW = lCol != null ? Mathf.Max(0.28f, lCol.bounds.extents.x - 0.08f) : 0.52f;
+                                    landX = Mathf.Clamp(ceilX + side * 0.92f, landX - halfW, landX + halfW);
+                                }
+                            }
+                        }
+
+                        if (IsThreatenedByMeteor(landX, landPlat.transform.position.y, activeMeteors, out float mX))
+                        {
+                            float nudge = (landX >= mX) ? 0.28f : -0.28f;
+                            landX += nudge;
+                        }
+
+                        float wDx = ComputeSmartHorizontalDelta(botPos.x, landX, fullWrapWidth);
+                        if (Mathf.Abs(wDx) > 0.02f)
+                        {
+                            desiredMoveInput = Mathf.Clamp(wDx * 6.5f, -1f, 1f);
                         }
                     }
                 }
             }
 
-            botCurrentMoveInput = Mathf.MoveTowards(botCurrentMoveInput, desiredMoveInput, dt * 15f);
-            float platformCarryVx = (botGrounded && standingPlat != null && standingPlat.isMovingHorizontal)
-                ? standingPlat.CurrentHorizontalVelocity
-                : 0f;
+            if (!launchedVelocityThisFrame)
+            {
+                float accelRate = botGrounded ? 30f : 65f;
+                botCurrentMoveInput = Mathf.MoveTowards(botCurrentMoveInput, desiredMoveInput, dt * accelRate);
+                float platformCarryVx = (botGrounded && standingPlat != null && standingPlat.isMovingHorizontal)
+                    ? standingPlat.CurrentHorizontalVelocity
+                    : 0f;
 
-            botRb.linearVelocity = new Vector2((botCurrentMoveInput * currentMoveSpeed) + platformCarryVx, botRb.linearVelocity.y);
+                botRb.linearVelocity = new Vector2((botCurrentMoveInput * currentMoveSpeed) + platformCarryVx, botRb.linearVelocity.y);
+            }
         }
 
         // Ekran Sarma (Screen Wrap - yerel oyuncuyla birebir aynı!)
@@ -2003,10 +2290,13 @@ public class MultiplayerManager : MonoBehaviour
             opponentFacing = botCurrentMoveInput > 0f ? 1f : -1f;
         }
 
-        // Gerçek düşüş kontrolü: DeadZone (-5.15) altına düşerse 1 can kaybeder ve üstteki bir platformda doğar
-        if (afterPos.y < -5.15f)
+        // Gerçek düşüş kontrolü: ekran alt sınırını geçtiğinde 1 can kaybeder ve üstteki güvenli bir platformda doğar
+        float botDeathY = camBottomY - 0.45f;
+        if (afterPos.y < botDeathY)
         {
             OpponentHealth = Mathf.Max(0, OpponentHealth - 1);
+            botLockedTargetPlat = null;
+            botHookSideSign = 0f;
             if (OpponentHealth <= 0)
             {
                 OpponentAlive = false;
@@ -2021,7 +2311,7 @@ public class MultiplayerManager : MonoBehaviour
             {
                 if (platforms[i] == null) continue;
                 float py = platforms[i].transform.position.y;
-                if (py > highestY && py < 3.8f)
+                if (py > highestY && py < 3.6f && !IsThreatenedByMeteor(platforms[i].transform.position.x, py, activeMeteors))
                 {
                     highestY = py;
                     respawnPlat = platforms[i];
@@ -2029,19 +2319,281 @@ public class MultiplayerManager : MonoBehaviour
             }
 
             Vector3 respawnPos = respawnPlat != null
-                ? new Vector3(respawnPlat.transform.position.x, respawnPlat.transform.position.y + 0.48f, 0f)
+                ? new Vector3(respawnPlat.transform.position.x, GetPlatformTopY(respawnPlat) + 0.28f, 0f)
                 : new Vector3(0f, 1.8f, 0f);
 
             opponentAvatarObj.transform.position = respawnPos;
             botRb.position = respawnPos;
             botRb.linearVelocity = new Vector2(0f, -GameManager.globalPlatformSpeed);
-            botMistakeTimer = 0f;
+            botJumpCooldown = 0.12f;
             botVisualStretch = new Vector2(1.15f, 0.88f);
             JumpDustEffect.SpawnSuperJumpBurst(respawnPos);
         }
 
         OpponentTargetPos = opponentAvatarObj.transform.position;
         OpponentVy = botRb.linearVelocity.y;
+    }
+
+    private void ExecuteBotJump(
+        float jumpVelocityY,
+        Vector2 feetPos,
+        float currentBotY,
+        PlatformMovement fromPlat,
+        PlatformMovement targetPlat,
+        float hookSideSign,
+        GameManager gm)
+    {
+        // Doğrudan dikey hız ata (AddForce gecikmesi olmadan anında yükselir ve hedef kilidini korur!)
+        botCurrentMoveInput = 0f;
+        botAirTime = 0f;
+        botUngroundLockTimer = 0.07f;
+        botRb.linearVelocity = new Vector2(0f, jumpVelocityY);
+        botVisualStretch = new Vector2(0.80f, 1.24f);
+        JumpDustEffect.SpawnJumpDust(feetPos);
+        botGrounded = false;
+        botWasGrounded = false;
+        botCoyoteTimer = 0f;
+        botLastTakeoffY = currentBotY - 0.24f;
+        botLastAttemptFromPlat = fromPlat;
+        botLastAttemptTargetPlat = targetPlat;
+        botLockedTargetPlat = targetPlat;
+        botHookSideSign = hookSideSign;
+
+        // Doğal insan tepki ritmi: alt bölgedeyken anında çevik zıplar, üstte ve öndeyken sakin ritimle çıkar
+        int localHp = gm != null ? gm.health : 3;
+        if (currentBotY < -0.65f)
+        {
+            botJumpCooldown = UnityEngine.Random.Range(0.03f, 0.06f);
+        }
+        else if (OpponentHealth > localHp)
+        {
+            botJumpCooldown = UnityEngine.Random.Range(0.11f, 0.20f);
+        }
+        else
+        {
+            botJumpCooldown = UnityEngine.Random.Range(0.06f, 0.13f);
+        }
+    }
+
+    private static float GetPlatformTopY(PlatformMovement p)
+    {
+        if (p == null) return 0f;
+        Collider2D col = p.GetComponent<Collider2D>();
+        return col != null ? col.bounds.max.y : (p.transform.position.y + 0.14f);
+    }
+
+    private static float ComputeSmartHorizontalDelta(float fromX, float toX, float fullSpan)
+    {
+        float directDx = toX - fromX;
+        // Düello genişliği (-1.55..+1.55) doğrudan tek sıçramada geçilebildiği için gereksiz ekran sarma riskine girme
+        if (Mathf.Abs(directDx) <= 3.15f || fullSpan <= 0.5f)
+        {
+            return directDx;
+        }
+        float wrapped = ShortestWrappedDx(fromX, toX, fullSpan);
+        return (Mathf.Abs(wrapped) + 0.35f < Mathf.Abs(directDx)) ? wrapped : directDx;
+    }
+
+    private PlatformMovement SelectBestUpperPlatformForBot(
+        PlatformMovement[] platforms,
+        PlatformMovement standingPlat,
+        Vector3 botPos,
+        float botFeetY,
+        float fullWrapWidth,
+        float currentMoveSpeed,
+        float upwardSpeed,
+        float gravityAccel,
+        SpaceMeteorProjectile[] activeMeteors,
+        out float chosenFlightTime)
+    {
+        chosenFlightTime = 0.48f;
+        PlatformMovement best = null;
+        float bestCost = 999f;
+
+        float vRel = Mathf.Max(2.5f, upwardSpeed) + GameManager.globalPlatformSpeed;
+        // Köşe tırmanışı (corner hop) payı dahil ulaşılabilir maksimum dikey kazanç
+        float maxReachableDy = ((vRel * vRel) / (2f * gravityAccel)) + 0.28f;
+        // Aynı platformda 2+ kez takıldıysa yandaki/hafif alttaki alternatif kaçış platformlarına da izin ver!
+        float minAllowedDy = (standingPlat != null && botSamePlatFailCount >= 2) ? -0.45f : 0.28f;
+
+        for (int i = 0; i < platforms.Length; i++)
+        {
+            PlatformMovement p = platforms[i];
+            if (p == null || p == standingPlat) continue;
+
+            float topY = GetPlatformTopY(p);
+            float dyTop = topY - botFeetY;
+            if (dyTop < minAllowedDy || dyTop > Mathf.Min(2.08f, maxReachableDy))
+                continue;
+
+            float flightT = Mathf.Clamp(0.36f + Mathf.Max(0f, dyTop) * 0.13f, 0.32f, 0.64f);
+            float futureX = p.PredictXAfter(flightT);
+            float horizDx = ComputeSmartHorizontalDelta(botPos.x, futureX, fullWrapWidth);
+
+            // Çok uzakta ve uzaklaşmakta olan platformlara ağır ceza ver
+            float maxHoriz = currentMoveSpeed * flightT + 0.65f;
+            float outOfRangePenalty = Mathf.Abs(horizDx) > maxHoriz ? (Mathf.Abs(horizDx) - maxHoriz) * 3.2f : 0f;
+
+            // Tavan engeli varsa ek maliyet (açık platform varsa onu tercih etsin, yoksa kavisle çıksın!)
+            bool directlyOverhead = Mathf.Abs(futureX - botPos.x) < 0.86f && dyTop > 0.15f && dyTop < 1.85f;
+            float ceilingPenalty = directlyOverhead ? 0.60f : 0f;
+
+            // Parabolik sıçrama yayının ortasında başka bir katı platform yolu tıkıyor mu? (Varsa önce o ara basamağı seçtir!)
+            float pathBlockPenalty = 0f;
+            if (!directlyOverhead && dyTop > 0.55f)
+            {
+                for (int k = 0; k < platforms.Length; k++)
+                {
+                    PlatformMovement midP = platforms[k];
+                    if (midP == null || midP == p || midP == standingPlat) continue;
+                    Collider2D mCol = midP.GetComponent<Collider2D>();
+                    if (mCol != null && mCol.usedByEffector) continue;
+
+                    float midTop = mCol != null ? mCol.bounds.max.y : (midP.transform.position.y + 0.14f);
+                    float midBot = mCol != null ? mCol.bounds.min.y : (midP.transform.position.y - 0.14f);
+                    if (midBot < botPos.y + 0.10f || midTop > topY - 0.15f) continue;
+
+                    float frac = Mathf.Clamp01((midBot - botFeetY) / Mathf.Max(0.25f, dyTop));
+                    float arcSampleX = Mathf.Lerp(botPos.x, botPos.x + horizDx, frac);
+                    float midPredX = midP.PredictXAfter(flightT * frac);
+                    if (Mathf.Abs(arcSampleX - midPredX) < 0.82f)
+                    {
+                        pathBlockPenalty = 3.8f;
+                        break;
+                    }
+                }
+            }
+
+            // Tekrar cezası yalnızca 2+ başarısız denemeden sonra devreye girsin (ilk denemede açık kenara indiği için 2. zıplamada rahatça çıkar)
+            float repeatFailPenalty = (standingPlat != null && botSamePlatFailCount >= 2 && p == botLastAttemptTargetPlat)
+                ? (botSamePlatFailCount * 1.5f)
+                : 0f;
+
+            // 1-adım ileri bakış (Lookahead): Bu platformun üstünde devam eden başka bir platform var mı?
+            bool hasNextStepUp = false;
+            for (int j = 0; j < platforms.Length; j++)
+            {
+                PlatformMovement p2 = platforms[j];
+                if (p2 == null || p2 == p || p2 == standingPlat) continue;
+                float dy2 = GetPlatformTopY(p2) - topY;
+                if (dy2 >= 0.45f && dy2 <= 1.95f)
+                {
+                    hasNextStepUp = true;
+                    break;
+                }
+            }
+            float lookaheadBonus = hasNextStepUp ? -0.45f : 0.35f;
+
+            // Platform üzerinde Can veya Roket/Güçlendirme varsa hafif cazibe bonusu
+            float pickupBonus = (p.GetComponentInChildren<PowerUpPickup>() != null || p.GetComponentInChildren<HealthPickup>() != null)
+                ? -0.35f
+                : 0f;
+
+            float meteorPenalty = IsThreatenedByMeteor(futureX, topY, activeMeteors) ? 2.8f : 0f;
+
+            // İdeal tırmanma adımı (~1.35-1.55 birim) en verimli ve doğal görünen adımdır
+            float cost = Mathf.Abs(dyTop - 1.38f) * 1.10f
+                       + Mathf.Abs(horizDx) * 0.42f
+                       + ceilingPenalty
+                       + pathBlockPenalty
+                       + repeatFailPenalty
+                       + outOfRangePenalty
+                       + lookaheadBonus
+                       + pickupBonus
+                       + meteorPenalty;
+
+            if (cost < bestCost)
+            {
+                bestCost = cost;
+                best = p;
+                chosenFlightTime = flightT;
+            }
+        }
+
+        return best;
+    }
+
+    private static PlatformMovement FindOverheadSolidBlocker(
+        PlatformMovement[] platforms,
+        PlatformMovement ignorePlat,
+        float botX,
+        float botY,
+        float targetTopY,
+        float lookAheadDt)
+    {
+        PlatformMovement lowestBlocker = null;
+        float lowestY = 999f;
+
+        for (int i = 0; i < platforms.Length; i++)
+        {
+            PlatformMovement p = platforms[i];
+            if (p == null || p == ignorePlat) continue;
+
+            Collider2D col = p.GetComponent<Collider2D>();
+            if (col != null && col.usedByEffector) continue;
+
+            float topY = col != null ? col.bounds.max.y : (p.transform.position.y + 0.14f);
+            float bottomY = col != null ? col.bounds.min.y : (p.transform.position.y - 0.14f);
+
+            if (bottomY < botY + 0.05f || bottomY > targetTopY + 0.45f)
+                continue;
+
+            float predX = p.PredictXAfter(lookAheadDt);
+            if (Mathf.Abs(predX - botX) < 0.88f && bottomY < lowestY)
+            {
+                lowestY = bottomY;
+                lowestBlocker = p;
+            }
+        }
+
+        return lowestBlocker;
+    }
+
+    private static bool IsLandingReachable(
+        float botX,
+        float botFeetY,
+        float botVy,
+        PlatformMovement plat,
+        float platTopY,
+        float fullWrapWidth,
+        float currentMoveSpeed,
+        float gravityAccel,
+        out float fallTime)
+    {
+        // Düşen platforma göre bağıl düşüş süresini çöz: 0.5*g*t^2 + (-botVy - vPlat)*t - dropDist = 0
+        float dropDist = Mathf.Max(0f, botFeetY - platTopY);
+        float relDownSpeed = (-botVy) - GameManager.globalPlatformSpeed;
+        float disc = (relDownSpeed * relDownSpeed) + (2f * gravityAccel * dropDist);
+        fallTime = disc > 0f
+            ? Mathf.Clamp((-relDownSpeed + Mathf.Sqrt(disc)) / gravityAccel, 0.05f, 0.85f)
+            : 0.18f;
+
+        float predX = plat.PredictXAfter(fallTime);
+        float dx = ComputeSmartHorizontalDelta(botX, predX, fullWrapWidth);
+        float maxReachX = (currentMoveSpeed * fallTime * 0.95f) + 0.56f;
+        return Mathf.Abs(dx) <= maxReachX;
+    }
+
+    private static bool IsThreatenedByMeteor(float x, float y, SpaceMeteorProjectile[] meteors)
+    {
+        return IsThreatenedByMeteor(x, y, meteors, out _);
+    }
+
+    private static bool IsThreatenedByMeteor(float x, float y, SpaceMeteorProjectile[] meteors, out float threatX)
+    {
+        threatX = 0f;
+        if (meteors == null || meteors.Length == 0) return false;
+        for (int i = 0; i < meteors.Length; i++)
+        {
+            if (meteors[i] == null) continue;
+            Vector3 mp = meteors[i].transform.position;
+            if (mp.y >= y - 0.35f && mp.y <= y + 4.8f && Mathf.Abs(mp.x - x) < 0.78f)
+            {
+                threatX = mp.x;
+                return true;
+            }
+        }
+        return false;
     }
 
     private static float ShortestWrappedDx(float fromX, float toX, float fullSpan)
