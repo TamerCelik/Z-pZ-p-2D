@@ -24,10 +24,8 @@ public class PlayerController : MonoBehaviour
     public float jumpBufferTime = 0.12f;
     private float jumpBufferCounter;
 
-    [Header("Kontrol Modu (0: Butonlar, 1: Jiroskop/Eğim, 2: Analog)")]
+    [Header("Kontrol Modu (0: Yön Tuşları, 2: Joystick)")]
     public int controlMode = 0;
-    [Tooltip("Jiroskop eğim hassasiyeti")]
-    public float tiltSensitivity = 3f;
 
     [Header("Mobil Buton Referansları")]
     public GameObject leftButtonObj;
@@ -35,6 +33,12 @@ public class PlayerController : MonoBehaviour
     public GameObject jumpButtonObj;
     public GameObject bottomBarObj;
     private MobileAnalogStick analogStick;
+
+    // Alt ölüm çizgisi (DeadZone): Tuş modunda alt barın üstünde, Analog modunda ekran bitiminin altında konumlanır
+    private Transform bottomDeadZoneTr;
+    private Collider2D bottomDeadZoneCol;
+    private float defaultDeadZoneY = -5.3f;
+    private bool deadZoneCached = false;
 
     [Header("Zemin Kontrolü & Zıplama Kilidi")]
     public Transform ayakNoktasi;
@@ -104,8 +108,8 @@ public class PlayerController : MonoBehaviour
 
         audioSource = GetComponent<AudioSource>();
 
-        // Kayıtlı kontrol modunu yükle
-        controlMode = PlayerPrefs.GetInt("ControlMode", 0);
+        // Kayıtlı kontrol modunu yükle (0 = Yön Tuşları, 2 = Joystick)
+        controlMode = KawaiiControlSelectorUI.GetNormalizedControlMode();
         ApplyControlModeUI();
 
         CalculateScreenBounds();
@@ -161,9 +165,14 @@ public class PlayerController : MonoBehaviour
         if (jumpButtonObj == null) jumpButtonObj = FindUiObjectByName("Btn_Zirla");
         if (bottomBarObj == null) bottomBarObj = FindUiObjectByName("BottomBar");
 
+        if (controlMode != KawaiiControlSelectorUI.ModeJoystick)
+        {
+            controlMode = KawaiiControlSelectorUI.ModeButtons;
+        }
+
         mobileMoveInput = 0f;
 
-        if (controlMode == 2) // Analog Modu: Alt bar ve tüm butonlar kalkar, yerine sadece Analog görünür
+        if (controlMode == KawaiiControlSelectorUI.ModeJoystick) // Joystick Modu: Alt bar ve tüm butonlar kalkar, solda Analog görünür
         {
             if (bottomBarObj != null) bottomBarObj.SetActive(false);
             if (leftButtonObj != null) leftButtonObj.SetActive(false);
@@ -176,27 +185,20 @@ public class PlayerController : MonoBehaviour
                 analogStick.gameObject.SetActive(true);
                 analogStick.ResetStickImmediate();
             }
+            UpdateDeadZoneForControlMode();
             return;
         }
 
-        // Tuş veya Jiroskop modunda alt bar açık, analog kapalı
+        // Yön Tuşları Modu (0): Alt bar ve butonlar açık, analog kapalı
         if (analogStick != null) analogStick.gameObject.SetActive(false);
         if (bottomBarObj != null) bottomBarObj.SetActive(true);
         if (jumpButtonObj != null) jumpButtonObj.SetActive(true);
-
-        if (controlMode == 1) // Jiroskop / Eğim Modu
-        {
-            if (leftButtonObj != null) leftButtonObj.SetActive(false);
-            if (rightButtonObj != null) rightButtonObj.SetActive(false);
-        }
-        else // Standart Buton Modu (0)
-        {
-            if (leftButtonObj != null) leftButtonObj.SetActive(true);
-            if (rightButtonObj != null) rightButtonObj.SetActive(true);
-        }
+        if (leftButtonObj != null) leftButtonObj.SetActive(true);
+        if (rightButtonObj != null) rightButtonObj.SetActive(true);
 
         int buttonLayout = PlayerPrefs.GetInt("ButtonLayout", 0);
         ApplyButtonLayoutPositions(buttonLayout);
+        UpdateDeadZoneForControlMode();
     }
 
     public void HideAllMobileControls()
@@ -282,6 +284,65 @@ public class PlayerController : MonoBehaviour
         }
     }
 
+    private void CacheBottomDeadZoneIfNeeded()
+    {
+        if (deadZoneCached && bottomDeadZoneTr != null) return;
+
+        GameObject[] deadZones = GameObject.FindGameObjectsWithTag("DeadZone");
+        for (int i = 0; i < deadZones.Length; i++)
+        {
+            if (deadZones[i] != null && deadZones[i].transform.position.y < 0f)
+            {
+                bottomDeadZoneTr = deadZones[i].transform;
+                bottomDeadZoneCol = deadZones[i].GetComponent<Collider2D>();
+                defaultDeadZoneY = bottomDeadZoneTr.position.y;
+                deadZoneCached = true;
+                break;
+            }
+        }
+    }
+
+    private void UpdateDeadZoneForControlMode()
+    {
+        CacheBottomDeadZoneIfNeeded();
+        if (bottomDeadZoneTr == null) return;
+
+        Vector3 pos = bottomDeadZoneTr.position;
+        if (controlMode == KawaiiControlSelectorUI.ModeJoystick)
+        {
+            Camera mainCam = Camera.main;
+            float screenBottomY = mainCam != null
+                ? (mainCam.transform.position.y - mainCam.orthographicSize)
+                : -5f;
+
+            float playerHeight = 0.54f;
+            if (playerCollider is BoxCollider2D boxCol)
+            {
+                playerHeight = Mathf.Clamp(boxCol.size.y * Mathf.Abs(baseScaleY), 0.40f, 0.75f);
+            }
+            else if (playerCollider != null && playerCollider.bounds.size.y > 0.05f)
+            {
+                playerHeight = Mathf.Clamp(playerCollider.bounds.size.y, 0.40f, 0.75f);
+            }
+
+            float dzHalfHeight = 0.5f;
+            if (bottomDeadZoneCol != null && bottomDeadZoneCol.bounds.extents.y > 0.01f)
+            {
+                dzHalfHeight = bottomDeadZoneCol.bounds.extents.y;
+            }
+
+            // Karakter ekranın alt bitimini tamamen geçtiğinde (üst kısmı ekran altına indiğinde) ölüm çizgisine değsin
+            float targetDeadZoneTopY = screenBottomY - playerHeight;
+            bottomDeadZoneTr.position = new Vector3(pos.x, targetDeadZoneTopY - dzHalfHeight, pos.z);
+        }
+        else
+        {
+            bottomDeadZoneTr.position = new Vector3(pos.x, defaultDeadZoneY, pos.z);
+        }
+
+        Physics2D.SyncTransforms();
+    }
+
     private void CalculateScreenBounds()
     {
         Camera mainCam = Camera.main;
@@ -295,6 +356,8 @@ public class PlayerController : MonoBehaviour
         {
             wrapThreshold = 3.0f;
         }
+
+        UpdateDeadZoneForControlMode();
     }
 
     void Update()
@@ -313,22 +376,9 @@ public class PlayerController : MonoBehaviour
         bool rocketActive = GameManager.Instance != null && GameManager.Instance.IsRocketBoosting;
         rb.gravityScale = rocketActive ? 0f : (baseGravityScale * speedRatio);
 
-        // 1. HAREKET (Tuşlar, Klavye veya Jiroskop Eğim)
-        float moveInput = 0f;
-
-        if (controlMode == 1) // Jiroskop Modu
-        {
-            float tilt = Input.acceleration.x * tiltSensitivity;
-            if (Mathf.Abs(tilt) < 0.05f) tilt = 0f;
-
-            float keyboardInput = Input.GetAxisRaw("Horizontal");
-            moveInput = Mathf.Abs(keyboardInput) > 0.01f ? keyboardInput : Mathf.Clamp(tilt, -1f, 1f);
-        }
-        else // Buton Modu
-        {
-            float keyboardInput = Input.GetAxisRaw("Horizontal");
-            moveInput = Mathf.Abs(mobileMoveInput) > 0.01f ? mobileMoveInput : keyboardInput;
-        }
+        // 1. HAREKET (Yön Tuşları, Joystick veya Klavye)
+        float keyboardInput = Input.GetAxisRaw("Horizontal");
+        float moveInput = Mathf.Abs(mobileMoveInput) > 0.01f ? mobileMoveInput : keyboardInput;
 
         float currentMoveSpeed = moveSpeed * Mathf.Sqrt(speedRatio);
 
