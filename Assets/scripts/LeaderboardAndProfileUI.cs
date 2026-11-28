@@ -28,6 +28,13 @@ public class LeaderboardAndProfileUI : MonoBehaviour
     private Sprite profileIconSprite;
     private Sprite leaderboardBtnBgSprite;
 
+    // Ana menü üst bar konteyneri ve alt panellerde gizleme referansları
+    private GameObject mainMenuTopBarObj;
+    private GameObject cachedAyarlarPanelObj;
+    private GameObject cachedShopPanelObj;
+    private GameObject cachedLobbyModalObj;
+    private bool isMenuSceneActive;
+
     // Ana menü sağ üst profil rozeti bileşenleri
     private Image topProfileAvatarImg;
     private Image topProfileSelfieOverlayImg;
@@ -120,9 +127,11 @@ public class LeaderboardAndProfileUI : MonoBehaviour
         BuildProfileModal();
 
         string sceneName = SceneManager.GetActiveScene().name;
-        if (sceneName == "MenuScene")
+        isMenuSceneActive = (sceneName == "MenuScene");
+        if (isMenuSceneActive)
         {
             BuildMainMenuTopBar();
+            UpdateMainMenuTopBarVisibility();
         }
         else
         {
@@ -178,13 +187,82 @@ public class LeaderboardAndProfileUI : MonoBehaviour
         return TMP_Settings.defaultFontAsset;
     }
 
+    private void Update()
+    {
+        if (isMenuSceneActive)
+        {
+            UpdateMainMenuTopBarVisibility();
+        }
+    }
+
+    private void UpdateMainMenuTopBarVisibility()
+    {
+        if (mainMenuTopBarObj == null) return;
+
+        ResolveMenuSubPanelsIfNeeded();
+
+        bool isSubPanelOpen =
+            (cachedAyarlarPanelObj != null && cachedAyarlarPanelObj.activeInHierarchy) ||
+            (cachedShopPanelObj != null && cachedShopPanelObj.activeInHierarchy) ||
+            (cachedLobbyModalObj != null && cachedLobbyModalObj.activeInHierarchy);
+
+        bool shouldShowTopBar = !isSubPanelOpen;
+        if (mainMenuTopBarObj.activeSelf != shouldShowTopBar)
+        {
+            mainMenuTopBarObj.SetActive(shouldShowTopBar);
+        }
+    }
+
+    private void ResolveMenuSubPanelsIfNeeded()
+    {
+        if (cachedAyarlarPanelObj != null && cachedShopPanelObj != null && cachedLobbyModalObj != null)
+        {
+            return;
+        }
+
+        if (cachedAyarlarPanelObj == null)
+        {
+            SettingsManager sm = Object.FindFirstObjectByType<SettingsManager>();
+            if (sm != null && sm.ayarlarPaneli != null)
+            {
+                cachedAyarlarPanelObj = sm.ayarlarPaneli;
+            }
+        }
+
+        if (rootCanvas == null) return;
+
+        Transform[] children = rootCanvas.GetComponentsInChildren<Transform>(true);
+        for (int i = 0; i < children.Length; i++)
+        {
+            Transform tr = children[i];
+            if (tr == null) continue;
+            string n = tr.name;
+            if (cachedAyarlarPanelObj == null && n == "AyarlarPaneli")
+            {
+                cachedAyarlarPanelObj = tr.gameObject;
+            }
+            else if (cachedShopPanelObj == null && n == "ShopPanel")
+            {
+                cachedShopPanelObj = tr.gameObject;
+            }
+            else if (cachedLobbyModalObj == null && n == "MultiplayerLobbyModal")
+            {
+                cachedLobbyModalObj = tr.gameObject;
+            }
+        }
+    }
+
     // =========================================================================
     // 1. ANA MENÜ ÜST BAR: SOL ÜST SKOR TABLOSU & SAĞ ÜST PROFİL SEKMESİ
     // =========================================================================
     private void BuildMainMenuTopBar()
     {
+        mainMenuTopBarObj = CreateUIObject("MainMenuTopBar", transform);
+        SetAnchors(mainMenuTopBarObj, Vector2.zero, Vector2.one);
+        mainMenuTopBarObj.transform.SetAsFirstSibling();
+
         // Sol Üst: Skor Tablosu (Kupa) Butonu (Altın Piksel Buton)
-        GameObject trophyBtnObj = CreateUIObject("TopLeft_LeaderboardButton", transform);
+        GameObject trophyBtnObj = CreateUIObject("TopLeft_LeaderboardButton", mainMenuTopBarObj.transform);
         SetAnchors(trophyBtnObj, new Vector2(0.032f, 0.908f), new Vector2(0.455f, 0.980f));
 
         Image trophyBg = trophyBtnObj.AddComponent<Image>();
@@ -208,7 +286,7 @@ public class LeaderboardAndProfileUI : MonoBehaviour
             new Vector2(0.29f, 0.14f), new Vector2(0.95f, 0.48f), 8.5f, 12.5f, TextAlignmentOptions.Left, Color.white, false);
 
         // Sağ Üst: Profil Sekmesi / Butonu (Turkuaz Piksel Buton)
-        GameObject profBtnObj = CreateUIObject("TopRight_ProfileButton", transform);
+        GameObject profBtnObj = CreateUIObject("TopRight_ProfileButton", mainMenuTopBarObj.transform);
         SetAnchors(profBtnObj, new Vector2(0.545f, 0.908f), new Vector2(0.968f, 0.980f));
 
         Image profBg = profBtnObj.AddComponent<Image>();
